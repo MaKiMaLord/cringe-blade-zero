@@ -37,6 +37,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
 产物为 `build/Release/version.dll`。[CMakeLists.txt](../CMakeLists.txt) 是目标和依赖的唯一来源：`version` 是完整版，`version_triggers` 是仅关闭自适应扳机的精简版，`EnvCheck` 是独立环境检查器。
 
+### 在 GitHub Actions 构建，避免本机安装工具链
+
+仓库附有 `.github/workflows/build-version.yml`。把改动提交到自己的 GitHub 仓库后，在 Actions 页手动运行 **Build version.dll**；工作流使用 `windows-2022`、Visual Studio 2022 x64，构建 `version` 和 `npc_combo_test`，通过后上传 `cringe-blade-zero-version` 工件。下载并解压该工件即可取得 `version.dll`。VS Code 可用于编辑、提交和推送，真正的编译在 GitHub 的 Windows 构建机完成；不要把含玩家存档或游戏文件的本地目录直接上传。
+
 编译全部目标可直接执行：
 
 ```powershell

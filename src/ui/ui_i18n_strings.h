@@ -1227,6 +1227,8 @@ inline constexpr UiTranslation kUiTranslations[] = {
     {L"剩余冷却", L"Remaining Cooldown"},
     {L"功能开关", L"Features"},
     {L"原生伤害", L"Native damage"},
+    {L"杀气削减", L"Anger damage"},
+    {L"韧性削减", L"Poise damage"},
     {L"原生界面", L"Native UI"},
     {L"取消置顶", L"Disable Always on Top"},
     {L"可输入 ", L"Allowed: "},

@@ -1,0 +1,33 @@
+name: Build version.dll
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - boss-native-damage
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Visual Studio 2022 x64
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build DLL and combo model test
+        run: cmake --build build --config Release --parallel 2 --target version npc_combo_test
+      - name: Test combo model
+        shell: pwsh
+        run: |
+          & .\build\Release\npc_combo_test.exe > build\npc_combo_test.log
+          $result = $LASTEXITCODE
+          Get-Content build\npc_combo_test.log -Tail 5
+          if ($result -ne 0) { exit $result }
+      - name: Upload version.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: cringe-blade-zero-version
+          path: build/Release/version.dll
+          if-no-files-found: error

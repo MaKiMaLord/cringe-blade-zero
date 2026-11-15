@@ -4309,11 +4309,14 @@ const Identity& ChainPawn();
 bool Airborne(Object* actor);
 void AirOnHit(Object* target,int cm,int hang,ULONGLONG started);
 void AirKeepFoes(ULONGLONG started);
+void NativeBossTick(ULONGLONG now);
+bool NativeBossDamageFor(ULONGLONG started);
 void ScaleSkillDamage() {
     // A skin's boss move; or, without a look, a chain move (the hero's own spec, or a boss move on its body: 不变身) under
     // a 伤害倍率, 武器属性, 强制受击 or 滞空 node. Before 11-12 武器属性 alone opened no window there, so a 不变身 BOSS 技能
     // under it hit with the boss's own damage.
     const ULONGLONG now=GetTickCount64();
+    NativeBossTick(now);
     if(!force_sources_.empty())ReleaseForceSources(false);
     const bool hero=!active_&&(skill_.owned||skill_.bare)&&skill_.handle>0&&((combo_damage_started_&&skill_.started==combo_damage_started_)||
                                                               (combo_watch_started_&&skill_.started==combo_watch_started_)||
@@ -4333,7 +4336,7 @@ void ScaleSkillDamage() {
     // moves) cast in a look keep their own damage (before 11-12 they took it too).
     // 派生页的技能伤害 replaces it for a boss move the chain plays (in a look or on the hero's body), never the hero's own.
     const bool chain_skill=combo_skill_started_&&damage_.skill_started==combo_skill_started_&&!damage_.owned&&combo_skill_scale_>0;
-    damage_.scale=Auditing()?1.0f:(chain_skill?combo_skill_scale_:damage_.hero||damage_.owned?1.0f:std::clamp(skill_damage_.load(std::memory_order_relaxed),kSkillDamageMin,kSkillDamageMax))*
+    damage_.scale=Auditing()||NativeBossDamageFor(damage_.skill_started)?1.0f:(chain_skill?combo_skill_scale_:damage_.hero||damage_.owned?1.0f:std::clamp(skill_damage_.load(std::memory_order_relaxed),kSkillDamageMin,kSkillDamageMax))*
         (combo_weapon_started_&&damage_.skill_started==combo_weapon_started_?combo_weapon_scale_:1.0f)*
         (combo_damage_started_&&damage_.skill_started==combo_damage_started_?combo_damage_scale_:1.0f);
     damage_.force=!Auditing()&&combo_force_started_&&damage_.skill_started==combo_force_started_?combo_force_kind_:-1;
@@ -5631,6 +5634,7 @@ size_t MovePick(size_t skin,const std::string& name) {
 }
 // One move now, on the nearest enemy: whatever skill runs is cut off first (a chain's next move, a dodge out of
 // an attack). A refused one is tried again for wait_ms, never another move.
+void ArmNativeBossMove(const Context& context,const std::string& package,ULONGLONG wait_ms);
 bool CastMove(const Context& context,const std::string& package,const std::wstring& note,ULONGLONG wait_ms) {
     Object* asc=PawnAsc(context.pawn);
     if(package.empty()||!ue::Alive(asc))return false;
@@ -5639,6 +5643,7 @@ bool CastMove(const Context& context,const std::string& package,const std::wstri
     if(!GrantPackage(asc,package,SIZE_MAX,1))return false;
     pending_.exact=true;pending_.note=note;pending_.until=pending_.since+wait_ms;
     pending_.bare=!active_;  // no NPC look: the boss move on the hero's own body (retried, watched and ended as the hero's own)
+    ArmNativeBossMove(context,package,wait_ms);  // before TryActivateAbility: a frame-zero hit must see the native rule
     TryPendingSkill(context);return true;
 }
 // Each move visit owns an outgoing-path clock. It opens at the derivation point
@@ -6601,6 +6606,90 @@ void PlayNode(int index,int button,ULONGLONG now);
 // A press's hop: the keys row it took is kept for a straight wire after it (the same keys again); a hop of another
 // button forgets it.
 float WeaponStrength(Object* pawn,ULONGLONG now);
+// The reflected PBZ structs for the pinned game build. These rules run in the game's own
+// damage pipeline, so its hit number and the dummy's native damage event see the same value.
+struct NativeBossRule {
+    int32_t priority=2, padding=0;Object* ability_class=nullptr;
+    unsigned char requirements[544]{};uint8_t role_target=0;unsigned char role_padding[7]{};
+    Object* preparer=nullptr;ue::Array modifications{};
+};
+struct NativeBossTakeRow {
+    uint8_t modify_type=1,padding[3]{};float value=1;
+    uint8_t add_if_missing=0,children=1,padding2[2]{};Name tag{},origin{};
+};
+struct NativeBossCalcRow {
+    uint8_t modify_type=1,padding[3]{};float value=1;
+    uint8_t add_if_missing=0,children=0,padding2[2]{};Name tag{},origin{};
+    unsigned char level_value[44]{};
+};
+static_assert(sizeof(NativeBossRule)==592 && sizeof(NativeBossTakeRow)==28 && sizeof(NativeBossCalcRow)==72,"PBZ native modifier layout changed");
+struct NativeBossState {
+    Identity component;std::string name;ULONGLONG armed=0,started=0,until=0;
+    bool take_on=false,calc_on=false;
+    NativeBossRule take,calc;NativeBossTakeRow damage;NativeBossCalcRow attack[2];
+};
+NativeBossState native_boss_;
+bool NativeBossLayout() {
+    Object* take=ue::FindObject("/Script/SGameAttributes.PreTakeModificationData");
+    Object* calc=ue::FindObject("/Script/SGameAttributes.PreCalculationModificationData");
+    Object* take_row=ue::FindObject("/Script/SGameAttributes.PreTakeDamageModifierData");
+    Object* calc_row=ue::FindObject("/Script/SGameAttributes.PreCalculationDamageModifierData");
+    return take&&calc&&take_row&&calc_row&&ue::StructSize(take)==592&&ue::StructSize(calc)==592&&
+           ue::StructSize(take_row)==28&&ue::StructSize(calc_row)==72&&
+           ue::Offset(take,"AbilityClassRequirement")==8&&ue::Offset(take,"RoleTarget")==560&&ue::Offset(take,"ModificationData")==576&&
+           ue::Offset(calc,"AbilityClassRequirement")==8&&ue::Offset(calc,"RoleTarget")==560&&ue::Offset(calc,"ModificationData")==576&&
+           ue::Offset(take_row,"DamageTag")==12&&ue::Offset(calc_row,"AttackTag")==12;
+}
+void NativeBossOff(const char* why) {
+    if(Same(native_boss_.component)){
+        Object* component=native_boss_.component.object;
+        if(native_boss_.take_on&&!Call(component,"UnRegisterPreTakeModification").Set("Data",native_boss_.take).Invoke())
+            Logf("NPC_COMBO native damage unregister failed (%s)",why);
+        if(native_boss_.calc_on&&!Call(component,"UnRegisterPreCalculationModification").Set("Data",native_boss_.calc).Invoke())
+            Logf("NPC_COMBO native attack unregister failed (%s)",why);
+    }
+    native_boss_={};
+}
+void NativeBossTick(ULONGLONG now) {
+    if(!native_boss_.take_on&&!native_boss_.calc_on)return;
+    if(!Same(native_boss_.component)){native_boss_={};return;}
+    if(skill_.handle>0&&skill_.name==native_boss_.name&&skill_.started>=native_boss_.armed){
+        native_boss_.started=skill_.started;native_boss_.until=now+kSkillRouteTailMs;
+    }
+    if(now>=native_boss_.until)NativeBossOff("tail-over");
+}
+bool NativeBossDamageFor(ULONGLONG started){return native_boss_.take_on&&started&&native_boss_.started==started;}
+void ArmNativeBossMove(const Context& context,const std::string& package,ULONGLONG wait_ms) {
+    NativeBossOff("next-cast");
+    const NpcCombo::Node* node=combo_.phase==ComboRun::Phase::Starting?ComboNode(combo_.playing):nullptr;
+    if(!node||node->type!=NpcCombo::NodeType::BossSkill||!node->native_enabled||NpcCombo::ShortName(package)!=node->ability||Auditing())return;
+    const ULONGLONG now=GetTickCount64();
+    const float damage=NpcCombo::ClampBossNative(node->native_damage)/100.0f;
+    const float anger=NpcCombo::ClampBossNative(node->native_anger)/100.0f;
+    const float poise=NpcCombo::ClampBossNative(node->native_poise)/100.0f;
+    Object* component=Property<Object*>(context.pawn,"Attribute Component");
+    Object* cls=Same(pending_.ability_class)?pending_.ability_class.object:nullptr;
+    if(!ue::Alive(component)||!cls||!NativeBossLayout()){
+        Logf("NPC_COMBO native modifiers unavailable node=%d component=%p class=%p",combo_.playing,component,cls);return;}
+    native_boss_.component=Id(component);native_boss_.name=NpcCombo::ShortName(package);
+    native_boss_.armed=now;native_boss_.until=now+wait_ms+kSkillRouteTailMs;
+    native_boss_.damage.value=damage;native_boss_.damage.tag=ue::MakeName(L"Damage.Damage.Target.GeneralDamage");
+    native_boss_.take.ability_class=cls;native_boss_.take.preparer=context.pawn;
+    native_boss_.take.modifications={&native_boss_.damage,1,1};
+    if(!native_boss_.damage.tag.None())
+        native_boss_.take_on=Call(component,"RegisterPreTakeModification").Set("Data",native_boss_.take).Invoke();
+    if(std::fabs(anger-1.0f)>=0.001f||std::fabs(poise-1.0f)>=0.001f){
+        native_boss_.attack[0].value=anger;native_boss_.attack[0].tag=ue::MakeName(L"Damage.Attack.Target.AngerDamage");
+        native_boss_.attack[1].value=poise;native_boss_.attack[1].tag=ue::MakeName(L"Damage.Attack.Target.PoiseDamage");
+        native_boss_.calc.ability_class=cls;native_boss_.calc.preparer=context.pawn;
+        native_boss_.calc.modifications={native_boss_.attack,2,2};
+        if(!native_boss_.attack[0].tag.None()&&!native_boss_.attack[1].tag.None())
+            native_boss_.calc_on=Call(component,"RegisterPreCalculationModification").Set("Data",native_boss_.calc).Invoke();
+    }
+    Logf("NPC_COMBO native node=%d move=%s damage=x%.2f anger=x%.2f poise=x%.2f registered=%d/%d",
+         combo_.playing,node->ability.c_str(),damage,anger,poise,native_boss_.take_on?1:0,native_boss_.calc_on?1:0);
+    if(!native_boss_.take_on&&!native_boss_.calc_on)native_boss_={};
+}
 // A node after which the hero is free: a BOSS 援护 (another actor plays it) or a 插件节点 (动作: the plugin does what it
 // does; nothing plays on the hero). The press that leads there leaves the hero's own action alone.
 bool AssistNode(int index){const NpcCombo::Node* n=ComboNode(index);return n&&(n->type==NpcCombo::NodeType::Assist||NpcCombo::PluginRuns(*n));}

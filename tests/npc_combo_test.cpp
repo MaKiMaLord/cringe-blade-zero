@@ -559,6 +559,20 @@ int main() {
         Check(btext.find(L"|X:MuXiaoKui,GA_MuXiaoKui_Skill_01,7,8,1,450") != std::wstring::npos && bb.type == NodeType::BossSkill && bb.boss == "MuXiaoKui" &&
               bb.ability == "GA_MuXiaoKui_Skill_01" && bb.ms == 450 && bb.mods[kModSpeed] == xs_ && Encode(bback) == btext,
               "saved as X:look,GA,x,y,next,cut and read back (with its arrow)");
+        Check(!bb.native_enabled && btext.find(L"|v:") == std::wstring::npos,
+              "an old BOSS skill keeps the previous damage behavior until its native values are edited");
+        Config native = bc;Node& tuned = native.chain[static_cast<size_t>(x)];
+        tuned.native_enabled = true;tuned.native_damage = 250;tuned.native_anger = 0;tuned.native_poise = 175;
+        const std::wstring native_text = Encode(native);const Config native_back = Decode(native_text);
+        const Node& read_native = native_back.chain[static_cast<size_t>(x)];
+        Check(native_text.find(L"|v:" + std::to_wstring(x) + L",250,0,175") != std::wstring::npos && read_native.native_enabled &&
+              read_native.native_damage == 250 && read_native.native_anger == 0 && read_native.native_poise == 175 && Encode(native_back) == native_text,
+              "the three native BOSS values survive saving and loading");
+        std::wstring old_text = native_text;const auto marker = old_text.find(L"|v:");
+        if (marker != std::wstring::npos) { const auto end = old_text.find(L'|', marker + 1);old_text.erase(marker, end == std::wstring::npos ? end : end - marker); }
+        const Config old_back = Decode(old_text);const Node& old_native = old_back.chain[static_cast<size_t>(x)];
+        Check(old_back.chain.size() == native_back.chain.size() && !old_native.native_enabled && old_native.native_damage == 100 && old_native.native_anger == 100 && old_native.native_poise == 100,
+              "a reader without the v: mark keeps node indices and the old BOSS behavior");
         Config empty = bc; empty.chain[static_cast<size_t>(x)].ability.clear();
         Check(!IsMove(empty.chain[static_cast<size_t>(x)]) && EmptyMove(empty.chain[static_cast<size_t>(x)]) && Follow(empty, 0, K, key, 100).move == 1,
               "a boss node without its move is passed over: the press plays B");

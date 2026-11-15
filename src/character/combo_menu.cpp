@@ -104,7 +104,8 @@ enum class Part : int {
     GroupResize, NodeRemove,
     RouteField, RouteMinus, RoutePlus, RouteValue, RouteHoldMinus, RouteHoldPlus, RouteHoldValue, RouteRemove, RouteAdd, RouteOut, ModOut, ModIn, RouteKeys, RouteMode, Header,
     NodeToggle3,  // a chain start's 整体不变身
-    LibraryBoss   // the BOSS 招式 list's 招式来源 dropdown
+    LibraryBoss,  // the BOSS 招式 list's 招式来源 dropdown
+    NodeNativeMinus, NodeNativePlus, NodeNativeValue
 };
 // sub: a branch's route row (-1 otherwise).
 struct Hit { Part part=Part::None; int index=-1; int sub=-1; bool operator==(const Hit& o) const { return part==o.part&&index==o.index&&sub==o.sub; } };
@@ -120,6 +121,7 @@ struct Shape {
     RECT rect{},header{},remove{},minus{},value{},plus{},field{},field2{},field3{},field4{},toggle{},toggle2{},add{},resize{}; POINT in{},out{},mod_out{},mod_in{};
     RECT toggle3{};  // a chain start's 整体不变身 (its last row)
     RECT hminus{},hvalue{},hplus{};  // a trigger's 按住 stepper (has_hold)
+    RECT native_minus[3]{}, native_value[3]{}, native_plus[3]{};  // BOSS 技能: 原生伤害 / 杀气 / 韧性
     bool has_in=false,has_out=false,has_mod_out=false,has_mod_in=false,has_hold=false; std::vector<RouteShape> routes;
 };
 // Arrow: from a node's round pin to a modifier; ArrowBack: from a modifier's pin to the node that points at it.
@@ -226,7 +228,7 @@ LRESULT CALLBACK SearchInputProc(HWND w,UINT msg,WPARAM wp,LPARAM lp,UINT_PTR,DW
 
 // The 加速 multiplier being typed (node -1: none); fresh: the first key typed replaces the text.
 // hold: what is typed: -2 the node's own value, -1 a trigger's 按住 (seconds), else that branch row's 按住.
-struct Edit { int node=-1; std::wstring text; bool fresh=true; int hold=-2; } edit_;
+struct Edit { int node=-1; std::wstring text; bool fresh=true; int hold=-2; int native=-1; } edit_;
 POINT cursor_{-1,-1};
 std::wstring hint_text_;
 UiI18n::Language language_=UiI18n::Language::SimplifiedChinese;
@@ -1208,7 +1210,7 @@ SIZE MeasureNodeBody(HDC dc,size_t index) {
     if (node.type==NodeType::BossSkill) {
         const int look=Units(dc,UiTheme::Font::Body,(node.boss.empty()?Tr(L"选择外观"):BossLookName(node.boss))+L"  ▾")+60;
         const int move=Units(dc,UiTheme::Font::Body,(node.ability.empty()?Tr(L"选择招式"):MoveText(node.ability))+L"  ▾")+60;
-        return {std::clamp((std::max)((std::max)(title,look),move),280,420),kHeader+kRow*4+kPad};  // + 不变身
+        return {std::clamp((std::max)((std::max)(title,look),move),340,420),kHeader+kRow*7+kPad};  // 3 native values, 派生点, 不变身
     }
     if (node.type==NodeType::Assist) {  // its look, its move, a note
         const int look=Units(dc,UiTheme::Font::Body,(node.boss.empty()?Tr(L"选择外观"):BossLookName(node.boss))+L"  ▾")+60;
@@ -1336,8 +1338,14 @@ Shape NodeShape(HDC dc,size_t index) {
         s.value={s.minus.right+Px(4),line.top,s.plus.left-Px(4),line.bottom};
     } else if (node.type==NodeType::BossSkill) {
         s.field=Row(s.rect,0,26); s.field2=Row(s.rect,1,26);
-        stepper(2);  // its 派生点
-        s.toggle=Row(s.rect,3);  // 不变身
+        for(int k=0;k<3;++k){
+            const RECT line=Row(s.rect,k+2);const int b=line.bottom-line.top;
+            s.native_minus[k]={line.right-Px(124),line.top,line.right-Px(124)+b,line.bottom};
+            s.native_plus[k]={line.right-b,line.top,line.right,line.bottom};
+            s.native_value[k]={s.native_minus[k].right+Px(4),line.top,s.native_plus[k].left-Px(4),line.bottom};
+        }
+        stepper(5);  // its 派生点
+        s.toggle=Row(s.rect,6);  // 不变身
     } else if (node.type==NodeType::Assist) {
         s.field=Row(s.rect,0,26); s.field2=Row(s.rect,1,26);  // its look, its move; then a note (no 派生点: the hero is free)
     } else if (node.type==NodeType::WeaponMove) {
@@ -1694,6 +1702,17 @@ void Nudge(int index,int dir,int route=-1) {
     else return;
     Save(); Invalidate();
 }
+int* NativeValue(int index,int field) {
+    Node* node=At(index)?&config_.chain[static_cast<size_t>(index)]:nullptr;
+    if(!node||node->type!=NodeType::BossSkill)return nullptr;
+    switch(field){case 0:return &node->native_damage;case 1:return &node->native_anger;case 2:return &node->native_poise;default:return nullptr;}
+}
+void NudgeNative(int index,int field,int dir) {
+    int* value=NativeValue(index,field);if(!value||!dir)return;
+    config_.chain[static_cast<size_t>(index)].native_enabled=true;
+    *value=NpcCombo::ClampBossNative(*value+(dir>0?1:-1)*NpcCombo::kBossNativeStep);
+    Save();Invalidate();
+}
 // A 按住 of node `index`: row -1 a trigger's own, else that branch row's (null: none there).
 int* HoldOf(int index,int row) {
     if (!At(index)) return nullptr;
@@ -1739,6 +1758,11 @@ void BeginEdit(int index) {
     else _snwprintf_s(text,_countof(text),_TRUNCATE,L"%.2f",node.type==NodeType::Speed?NpcCombo::ClampSpeed(node.speed)/100.0:NpcCombo::ClampCancel(node.ms)/1000.0);
     edit_={index,text,true}; SetFocus(window_); Invalidate();
 }
+void BeginNativeEdit(int index,int field) {
+    const int* value=NativeValue(index,field);if(!value)return;
+    wchar_t text[16]{};_snwprintf_s(text,_countof(text),_TRUNCATE,L"%.2f",NpcCombo::ClampBossNative(*value)/100.0);
+    edit_={index,text,true,-2,field};SetFocus(window_);Invalidate();
+}
 // A 按住 typed in seconds (0-5; 0: any press).
 void BeginHoldEdit(int index,int row) {
     const int* hold=HoldOf(index,row); if (!hold) return;
@@ -1751,6 +1775,15 @@ void CancelEdit() { if (edit_.node>=0) { edit_={}; Invalidate(); } }
 void CommitEdit() {
     if (edit_.node<0) return;
     const Edit done=edit_; edit_={};
+    if(done.native>=0){
+        int* target=NativeValue(done.node,done.native);
+        wchar_t* end=nullptr;const double value=done.text.empty()?-1:std::wcstod(done.text.c_str(),&end);
+        if(target&&end&&end!=done.text.c_str()&&value>=0){
+            const int percent=static_cast<int>(std::lround(std::clamp(value,0.0,100.0)*100));
+            *target=NpcCombo::ClampBossNative(percent);config_.chain[static_cast<size_t>(done.node)].native_enabled=true;Save();
+        }
+        Invalidate();return;
+    }
     if (done.hold>-2) {
         int* hold=HoldOf(done.node,done.hold);
         wchar_t* end=nullptr; const double value=done.text.empty()?-1:std::wcstod(done.text.c_str(),&end);
@@ -3229,6 +3262,9 @@ void Click(const Hit& hit) {
     case Part::Node: case Part::NodeIn: case Part::NodeOut: case Part::ModOut: case Part::ModIn: case Part::RouteOut: case Part::RouteValue: Select(hit.index); break;
     case Part::NodeMinus: Select(hit.index); Nudge(hit.index,-1); break;
     case Part::NodePlus: Select(hit.index); Nudge(hit.index,1); break;
+    case Part::NodeNativeMinus: Select(hit.index); NudgeNative(hit.index,hit.sub,-1); break;
+    case Part::NodeNativePlus: Select(hit.index); NudgeNative(hit.index,hit.sub,1); break;
+    case Part::NodeNativeValue: Select(hit.index); BeginNativeEdit(hit.index,hit.sub); break;
     case Part::RouteMinus: Select(hit.index); Nudge(hit.index,-1,hit.sub); break;
     case Part::NodeHoldMinus: Select(hit.index); NudgeHold(hit.index,-1,-1); break;
     case Part::NodeHoldPlus: Select(hit.index); NudgeHold(hit.index,1,-1); break;
@@ -3608,6 +3644,12 @@ Hit HitTest(POINT p) {
         const bool stepper=node.type==NodeType::Interval||node.type==NodeType::Trigger||node.type==NodeType::Speed||node.type==NodeType::Damage||node.type==NodeType::KeepChain||node.type==NodeType::Skill||
                            node.type==NodeType::AutoDodge||node.type==NodeType::BossSkill||node.type==NodeType::WeaponMove||node.type==NodeType::Teleport||node.type==NodeType::PreInput||
                            node.type==NodeType::WeaponActions||node.type==NodeType::Hook||node.type==NodeType::Trim||(node.type==NodeType::Plugin&&PluginHasValue(node));
+        int native_field=-1;Part native_part=Part::None;
+        if(node.type==NodeType::BossSkill)for(int k=0;k<3;++k){
+            if(in(s.native_minus[k])){native_field=k;native_part=Part::NodeNativeMinus;break;}
+            if(in(s.native_plus[k])){native_field=k;native_part=Part::NodeNativePlus;break;}
+            if(in(s.native_value[k])){native_field=k;native_part=Part::NodeNativeValue;break;}
+        }
         if (route_out>=0) hit={Part::RouteOut,i,route_out};
         else if (s.has_out&&Near(p,s.out,pin)) hit={Part::NodeOut,i};
         else if (s.has_in&&Near(p,s.in,pin)) hit={Part::NodeIn,i};
@@ -3615,6 +3657,7 @@ Hit HitTest(POINT p) {
         else if (s.has_mod_in&&Near(p,s.mod_in,pin)) hit={Part::ModIn,i};
         else if (!in(s.rect)) continue;
         else if ((IsPicked(i)||hot_.index==i)&&!IsKey(i)&&!IsSettingAt(i)&&in(s.remove)) hit={Part::NodeRemove,i};
+        else if (native_field>=0) hit={native_part,i,native_field};
         else if (stepper&&in(s.minus)) hit={Part::NodeMinus,i};
         else if (stepper&&in(s.plus)) hit={Part::NodePlus,i};
         else if (stepper&&in(s.value)) hit={Part::NodeValue,i};
@@ -4479,9 +4522,20 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             };
             field(s.field,Part::NodeField,node.boss.empty()?Tr(L"选择外观"):BossLookName(node.boss),!node.boss.empty());
             field(s.field2,Part::NodeField2,node.ability.empty()?Tr(L"选择招式"):MoveText(node.ability),!node.ability.empty());
-            RECT label=Row(s.rect,2); label.right=s.minus.left-Px(6);
+            const int values[]={node.native_damage,node.native_anger,node.native_poise};
+            const wchar_t* labels[]={L"原生伤害",L"杀气削减",L"韧性削减"};
+            for(int k=0;k<3;++k){
+                RECT row=Row(s.rect,k+2);row.right=s.native_minus[k].left-Px(6);
+                Label(dc,Tr(labels[k]),row,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
+                const bool editing_native=edit_.node==index&&edit_.native==k,blink=(GetTickCount64()/530)%2==0;
+                wchar_t value[24]{};_snwprintf_s(value,_countof(value),_TRUNCATE,L"×%.2f",NpcCombo::ClampBossNative(values[k])/100.0);
+                StepperAt(dc,graphics,s.native_minus[k],s.native_value[k],s.native_plus[k],editing_native?edit_.text+(blink?L"▏":L" "):value,
+                          Hit{Part::NodeNativeMinus,index,k},Hit{Part::NodeNativePlus,index,k},Hit{Part::NodeNativeValue,index,k},UiTheme::Font::Small);
+                if(editing_native)Rounded(graphics,s.native_value[k],static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
+            }
+            RECT label=Row(s.rect,5); label.right=s.minus.left-Px(6);
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
-            const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
+            const bool editing=edit_.node==index&&edit_.native<0,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
             Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
@@ -4975,7 +5029,8 @@ void PressAt(POINT p,bool alt,WPARAM keys=0) {
     SetFocus(window_);
     const Hit hit=HitTest(p);
     if (search_.open&&hit.part!=Part::Search) { CloseSearch(); return; }  // a click outside closes the search
-    const bool same_value=hit.index==edit_.node&&((hit.part==Part::NodeValue&&edit_.hold==-2)||(hit.part==Part::NodeHoldValue&&edit_.hold==-1)||
+    const bool same_value=hit.index==edit_.node&&((hit.part==Part::NodeValue&&edit_.hold==-2&&edit_.native<0)||(hit.part==Part::NodeNativeValue&&hit.sub==edit_.native)||
+                                                   (hit.part==Part::NodeHoldValue&&edit_.hold==-1)||
                                                   (hit.part==Part::RouteHoldValue&&edit_.hold>=0&&hit.sub==edit_.hold));
     if (edit_.node>=0&&!same_value) CommitEdit();  // a click elsewhere keeps the typed value
     pressed_=hit;
@@ -5014,6 +5069,7 @@ bool SearchKey(WPARAM key) {
 }
 bool WheelValue(const Hit& hit,int steps) {
     if (hit.part==Part::NodeValue||hit.part==Part::NodeMinus||hit.part==Part::NodePlus) Nudge(hit.index,steps);
+    else if (hit.part==Part::NodeNativeValue||hit.part==Part::NodeNativeMinus||hit.part==Part::NodeNativePlus) NudgeNative(hit.index,hit.sub,steps);
     else if (hit.part==Part::NodeHoldValue||hit.part==Part::NodeHoldMinus||hit.part==Part::NodeHoldPlus) NudgeHold(hit.index,steps,-1);
     else if (hit.part==Part::RouteValue||hit.part==Part::RouteMinus||hit.part==Part::RoutePlus) Nudge(hit.index,steps,hit.sub);
     else if (hit.part==Part::RouteHoldValue||hit.part==Part::RouteHoldMinus||hit.part==Part::RouteHoldPlus) NudgeHold(hit.index,steps,hit.sub);
@@ -5517,7 +5573,8 @@ RECT HudBox(const Node& n) {
     case NodeType::WeaponActions: w=500; h=kHeader+kRow*(static_cast<int>(n.routes.size())+5)+kPad; break;
     case NodeType::Trigger: h=kHeader+kRow*5+kPad; break;
     case NodeType::Interval: w=200; break;
-    case NodeType::BossSkill: case NodeType::Hook: case NodeType::WeaponMove: case NodeType::Teleport: case NodeType::Assist: w=340; h=kHeader+kRow*5+kPad; break;
+    case NodeType::BossSkill: w=340; h=kHeader+kRow*8+kPad; break;
+    case NodeType::Hook: case NodeType::WeaponMove: case NodeType::Teleport: case NodeType::Assist: w=340; h=kHeader+kRow*5+kPad; break;
     default: break;
     }
     return {n.x,n.y,n.x+w,n.y+h};
