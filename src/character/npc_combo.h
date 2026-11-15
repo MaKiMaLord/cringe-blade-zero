@@ -52,6 +52,15 @@ float Clip(const std::string& ability);
 struct WeaponInfo { std::wstring name; float scale = 1; bool ok = false; uint64_t serial = 0; };
 void RecordWeapon(const std::wstring& name, float scale, bool ok);
 WeaponInfo LastWeapon();
+// BOSS 技能卡片的“读取下一次”：页面提交一次请求，运行端在该节点下一次命中同一个目标时记录每个
+// 原生 TakeDamage 事件，完成后页面把 values（百分之一伤害）写回该节点。Any thread, no engine calls.
+struct NativeMeasure { std::string profile, ability; int node = -1; int state = 0; std::vector<int> values; uint64_t serial = 0; };
+enum : int { kMeasureOff = 0, kMeasureArmed = 1, kMeasureRunning = 2, kMeasureDone = 3, kMeasureFailed = 4 };
+void RequestNativeMeasure(const std::string& profile, int node, const std::string& ability);
+void CancelNativeMeasure(const std::string& profile, int node);
+NativeMeasure GetNativeMeasure();
+bool BeginNativeMeasure(const std::string& profile, int node, const std::string& ability);
+void FinishNativeMeasure(const std::string& profile, int node, const std::vector<int>& values);
 // 派生提示: the notice in the bottom-right of the game client a chain's move shows as it plays (PBZDebugMenu.ini
 // [NpcCombo] ShowToast, default on; the NPC skill key's own casts keep theirs). Any thread.
 bool ShowToast();

@@ -3217,9 +3217,9 @@ void MoveSkillBullet(Object* root) {
 using NativeExec=void(*)(Object* context,unsigned char* stack,void* result);
 // UFunction (UE 5.8): FunctionFlags +0x100 (FUNC_Native 0x400, FUNC_Delegate 0x100000), Func +0x128 (ParmsSize
 // +0x106 as ue_runtime reads it). FFrame: Object +0x18, MostRecentProperty +0x30, MostRecentPropertyAddress +0x38.
-constexpr size_t kFuncFlags=0x100,kFuncExec=0x128,kFrameObject=0x18,kFrameProperty=0x30,kFrameAddress=0x38;
+constexpr size_t kFuncFlags=0x100,kFuncExec=0x128,kFrameObject=0x18,kFrameLocals=0x28,kFrameProperty=0x30,kFrameAddress=0x38;
 constexpr uint32_t kFuncNative=0x400,kFuncDelegate=0x100000;
-NativeExec game_faction_=nullptr,game_lookup_=nullptr,game_map_find_=nullptr,game_postprocess_=nullptr;
+NativeExec game_faction_=nullptr,game_lookup_=nullptr,game_map_find_=nullptr,game_postprocess_=nullptr,game_take_damage_=nullptr;
 size_t trace_redirects_=0;
 bool exec_hooks_tried_=false;
 Object* LoadAssetPath(const char* path);
@@ -3258,6 +3258,9 @@ void ExecFaction(Object* context,unsigned char* stack,void* result);
 void ExecWeaponLookup(Object* context,unsigned char* stack,void* result);
 void ExecTrailFind(Object* context,unsigned char* stack,void* result);
 void ExecPostProcess(Object* context,unsigned char* stack,void* result);
+void ExecTakeDamage(Object* context,unsigned char* stack,void* result);
+bool NativeBossBeforeDamage(Object* target,Object* source);
+void NativeBossAfterDamage(Object* target,const unsigned char* final_map);
 struct ExecHook { const char* cls;const char* function;const char* last;int32_t result;NativeExec ours;NativeExec* game; };
 // last: read back through MostRecentPropertyAddress, so it must be the parameter the game's exec reads last.
 constexpr ExecHook kExecHooks[]={
@@ -3265,6 +3268,7 @@ constexpr ExecHook kExecHooks[]={
     {"/Script/SGameCombatSystem.WeaponUtils","GetWeaponActorsByDisplayIndex","OutActors",0,&ExecWeaponLookup,&game_lookup_},
     {"/Script/Engine.BlueprintMapLibrary","Map_Find","Value",1,&ExecTrailFind,&game_map_find_},
     {"/Script/Engine.SkeletalMeshComponent","GetPostProcessInstance",nullptr,8,&ExecPostProcess,&game_postprocess_},
+    {"/Script/SGameAttributes.AttributeComponent","TakeDamage","FinalDamageData",0,&ExecTakeDamage,&game_take_damage_},
 };
 // Once, on the game thread before the first skin skill: each native's slot holds a code address of the game's other
 // than the script exec, FUNC_Native is set and the parameters are as read; only then is the wrapper written in.
@@ -3298,6 +3302,13 @@ void ExecFaction(Object* context,unsigned char* stack,void* result) {
     game_faction_(context,stack,result);
     if(!fx_live_.load(std::memory_order_relaxed)||!result||*static_cast<uint8_t*>(result)==2)return;
     if(CallerNamed(stack,{"GAAction_PowerAttackParticle","GAAction_WeaponParticle_BlueRedEye"})){*static_cast<uint8_t*>(result)=2;++faction_forced_;}
+}
+void ExecTakeDamage(Object* context,unsigned char* stack,void* result){
+    unsigned char* locals=stack?ue::At<unsigned char*>(stack,kFrameLocals):nullptr;
+    Object* source=locals&&FaceReadable(locals,360)?*reinterpret_cast<Object**>(locals):nullptr;
+    const bool related=NativeBossBeforeDamage(context,source);
+    game_take_damage_(context,stack,result);
+    if(related&&locals&&FaceReadable(locals+280,80))NativeBossAfterDamage(context,locals+280);
 }
 Object* WeaponTracePostProcess() {
     Object* mesh=WeaponDisplay();
@@ -6625,7 +6636,9 @@ struct NativeBossCalcRow {
 static_assert(sizeof(NativeBossRule)==592 && sizeof(NativeBossTakeRow)==28 && sizeof(NativeBossCalcRow)==72,"PBZ native modifier layout changed");
 struct NativeBossState {
     Identity component;std::string name;ULONGLONG armed=0,started=0,until=0;
-    bool take_on=false,calc_on=false;
+    bool take_on=false,calc_on=false,measuring=false;
+    std::string profile;int node=-1;std::vector<int> exact,measured;size_t exact_at=0;uint32_t events=0;
+    std::vector<Identity> wave_targets;Identity measure_target;ULONGLONG last_event=0;
     NativeBossRule take,calc;NativeBossTakeRow damage;NativeBossCalcRow attack[2];
 };
 NativeBossState native_boss_;
@@ -6641,6 +6654,7 @@ bool NativeBossLayout() {
            ue::Offset(take_row,"DamageTag")==12&&ue::Offset(calc_row,"AttackTag")==12;
 }
 void NativeBossOff(const char* why) {
+    if(native_boss_.measuring)NpcCombo::FinishNativeMeasure(native_boss_.profile,native_boss_.node,native_boss_.measured);
     if(Same(native_boss_.component)){
         Object* component=native_boss_.component.object;
         if(native_boss_.take_on&&!Call(component,"UnRegisterPreTakeModification").Set("Data",native_boss_.take).Invoke())
@@ -6652,28 +6666,85 @@ void NativeBossOff(const char* why) {
 }
 void NativeBossTick(ULONGLONG now) {
     if(!native_boss_.take_on&&!native_boss_.calc_on)return;
-    if(!Same(native_boss_.component)){native_boss_={};return;}
+    if(!Same(native_boss_.component)){NativeBossOff("component-lost");return;}
     if(skill_.handle>0&&skill_.name==native_boss_.name&&skill_.started>=native_boss_.armed){
         native_boss_.started=skill_.started;native_boss_.until=now+kSkillRouteTailMs;
     }
     if(now>=native_boss_.until)NativeBossOff("tail-over");
 }
 bool NativeBossDamageFor(ULONGLONG started){return native_boss_.take_on&&started&&native_boss_.started==started;}
+bool NativeBossSource(Object* source){
+    if(!native_boss_.take_on||!ue::Alive(source)||!Same(ChainPawn()))return false;
+    Call owner(source,"GetDamageSourceOwnerActor","/Script/SGameAttributes.DamageSourceInterface");
+    if(!owner.Invoke()||owner.Get<Object*>("ReturnValue")!=ChainPawn().object)return false;
+    Call ability(source,"GetDamageSourceAbility","/Script/SGameAttributes.DamageSourceInterface");
+    Object* value=ability.Invoke()?ability.Get<Object*>("ReturnValue"):nullptr;
+    return ue::Alive(value)&&ue::ClassOf(value)==native_boss_.take.ability_class;
+}
+bool NativeBossSetExact(size_t hit){
+    if(hit>=native_boss_.exact.size()||!Same(native_boss_.component))return false;
+    const float before=native_boss_.damage.value;
+    native_boss_.damage.value=NpcCombo::ClampBossHit(native_boss_.exact[hit])/static_cast<float>(NpcCombo::kBossHitScale);
+    if(Call(native_boss_.component.object,"RefreshPreTakeModification").Set("Data",native_boss_.take).Invoke()){
+        native_boss_.exact_at=hit;return true;}
+    native_boss_.damage.value=before;Logf("NPC_COMBO exact damage refresh failed hit=%zu",hit+1);return false;
+}
+bool NativeBossBeforeDamage(Object* target,Object* source){
+    if(!NativeBossSource(source))return false;
+    const ULONGLONG now=GetTickCount64();
+    if(!native_boss_.exact.empty()){
+        bool seen=false;for(const Identity& wave_target:native_boss_.wave_targets)if(Same(wave_target)&&wave_target.object==target){seen=true;break;}
+        const bool next=native_boss_.events>0&&(seen||now>native_boss_.last_event+20);
+        if(next){native_boss_.wave_targets.clear();if(native_boss_.exact_at+1<native_boss_.exact.size())NativeBossSetExact(native_boss_.exact_at+1);}
+        native_boss_.wave_targets.push_back(Id(target));
+    }
+    ++native_boss_.events;native_boss_.last_event=now;return true;
+}
+float NativeFinalDamage(const unsigned char* map){
+    static Object* property=nullptr;
+    if(!property){Object* cls=ue::FindObject("/Script/SGameAttributes.AttributeComponent");Object* fn=cls?ue::FindFunction(cls,"TakeDamage"):nullptr;
+        for(Object* p=fn?ue::At<Object*>(fn,ue::layout::kChildProperties):nullptr;p;p=ue::At<Object*>(p,ue::layout::kPropNext))if(ue::NameIs(ue::At<Name>(p,ue::layout::kPropName),"FinalDamageData")){property=p;break;}}
+    if(!property)return 0;
+    Object* key=ue::At<Object*>(property,0x70),*value=ue::At<Object*>(property,0x78);
+    const int32_t value_offset=ue::At<int32_t>(property,0x80),stride=ue::At<int32_t>(property,0x8c),count=*reinterpret_cast<const int32_t*>(map+8),bits=*reinterpret_cast<const int32_t*>(map+40);
+    const unsigned char* data=*reinterpret_cast<unsigned char* const*>(map);const uint32_t* allocation=*reinterpret_cast<uint32_t* const*>(map+32);if(!allocation)allocation=reinterpret_cast<const uint32_t*>(map+16);
+    if(!key||!value||ue::At<int32_t>(key,ue::layout::kPropElementSize)!=8||ue::At<int32_t>(value,ue::layout::kPropElementSize)!=4||stride<12||stride>128||
+       value_offset<8||value_offset+4>stride||count<=0||count>128||bits<count||!FaceReadable(data,static_cast<size_t>(bits)*static_cast<size_t>(stride))||
+       !FaceReadable(allocation,(static_cast<size_t>(bits)+31)/32*4))return 0;
+    float total=0;char tag[160]{};
+    for(int32_t i=0;i<bits;++i)if(allocation[i/32]&(1u<<(i%32))){const unsigned char* row=data+static_cast<size_t>(i)*static_cast<size_t>(stride);
+        ue::NameText(*reinterpret_cast<const Name*>(row),tag,sizeof(tag));
+        if(!std::strncmp(tag,"Damage.Damage.Target.GeneralDamage",sizeof("Damage.Damage.Target.GeneralDamage")-1)){const float amount=*reinterpret_cast<const float*>(row+value_offset);if(std::isfinite(amount)&&amount>0)total+=amount;}}
+    return total;
+}
+void NativeBossAfterDamage(Object* target,const unsigned char* final_map){
+    if(!native_boss_.measuring)return;
+    if(!Same(native_boss_.measure_target))native_boss_.measure_target=Id(target);
+    if(!Same(native_boss_.measure_target)||native_boss_.measure_target.object!=target||native_boss_.measured.size()>=NpcCombo::kBossHitCountMax)return;
+    const float value=NativeFinalDamage(final_map);if(!(value>0))return;
+    const int hundredths=NpcCombo::ClampBossHit(static_cast<int>(std::lround(value*NpcCombo::kBossHitScale)));
+    native_boss_.measured.push_back(hundredths);Logf("NPC_COMBO measured hit=%zu damage=%.2f",native_boss_.measured.size(),value);
+}
 void ArmNativeBossMove(const Context& context,const std::string& package,ULONGLONG wait_ms) {
     NativeBossOff("next-cast");
     const NpcCombo::Node* node=combo_.phase==ComboRun::Phase::Starting?ComboNode(combo_.playing):nullptr;
-    if(!node||node->type!=NpcCombo::NodeType::BossSkill||!node->native_enabled||NpcCombo::ShortName(package)!=node->ability||Auditing())return;
+    if(!node||node->type!=NpcCombo::NodeType::BossSkill||NpcCombo::ShortName(package)!=node->ability||Auditing())return;
+    const bool measuring=NpcCombo::BeginNativeMeasure(ComboProfile(),combo_.playing,node->ability);
+    if(!node->native_enabled&&!measuring)return;
     const ULONGLONG now=GetTickCount64();
-    const float damage=NpcCombo::ClampBossNative(node->native_damage)/100.0f;
+    const bool exact=!measuring&&!node->native_hits.empty();
+    const float damage=exact?NpcCombo::ClampBossHit(node->native_hits[0])/static_cast<float>(NpcCombo::kBossHitScale):measuring?1.0f:NpcCombo::ClampBossNative(node->native_damage)/100.0f;
     const float anger=NpcCombo::ClampBossNative(node->native_anger)/100.0f;
     const float poise=NpcCombo::ClampBossNative(node->native_poise)/100.0f;
     Object* component=Property<Object*>(context.pawn,"Attribute Component");
     Object* cls=Same(pending_.ability_class)?pending_.ability_class.object:nullptr;
     if(!ue::Alive(component)||!cls||!NativeBossLayout()){
-        Logf("NPC_COMBO native modifiers unavailable node=%d component=%p class=%p",combo_.playing,component,cls);return;}
+        Logf("NPC_COMBO native modifiers unavailable node=%d component=%p class=%p",combo_.playing,component,cls);
+        if(measuring)NpcCombo::FinishNativeMeasure(ComboProfile(),combo_.playing,{});return;}
     native_boss_.component=Id(component);native_boss_.name=NpcCombo::ShortName(package);
-    native_boss_.armed=now;native_boss_.until=now+wait_ms+kSkillRouteTailMs;
-    native_boss_.damage.value=damage;native_boss_.damage.tag=ue::MakeName(L"Damage.Damage.Target.GeneralDamage");
+    native_boss_.armed=now;native_boss_.until=now+wait_ms+kSkillRouteTailMs;native_boss_.profile=ComboProfile();native_boss_.node=combo_.playing;
+    native_boss_.measuring=measuring;native_boss_.exact=exact?node->native_hits:std::vector<int>{};
+    native_boss_.damage.modify_type=exact?uint8_t{3}:uint8_t{1};native_boss_.damage.value=damage;native_boss_.damage.tag=ue::MakeName(L"Damage.Damage.Target.GeneralDamage");
     native_boss_.take.ability_class=cls;native_boss_.take.preparer=context.pawn;
     native_boss_.take.modifications={&native_boss_.damage,1,1};
     if(!native_boss_.damage.tag.None())
@@ -6686,9 +6757,9 @@ void ArmNativeBossMove(const Context& context,const std::string& package,ULONGLO
         if(!native_boss_.attack[0].tag.None()&&!native_boss_.attack[1].tag.None())
             native_boss_.calc_on=Call(component,"RegisterPreCalculationModification").Set("Data",native_boss_.calc).Invoke();
     }
-    Logf("NPC_COMBO native node=%d move=%s damage=x%.2f anger=x%.2f poise=x%.2f registered=%d/%d",
-         combo_.playing,node->ability.c_str(),damage,anger,poise,native_boss_.take_on?1:0,native_boss_.calc_on?1:0);
-    if(!native_boss_.take_on&&!native_boss_.calc_on)native_boss_={};
+    Logf("NPC_COMBO native node=%d move=%s damage=%s%.2f anger=x%.2f poise=x%.2f measure=%d registered=%d/%d",
+         combo_.playing,node->ability.c_str(),exact?"":"x",damage,anger,poise,measuring?1:0,native_boss_.take_on?1:0,native_boss_.calc_on?1:0);
+    if(!native_boss_.take_on&&!native_boss_.calc_on){if(native_boss_.measuring)NpcCombo::FinishNativeMeasure(native_boss_.profile,native_boss_.node,{});native_boss_={};}
 }
 // A node after which the hero is free: a BOSS 援护 (another actor plays it) or a 插件节点 (动作: the plugin does what it
 // does; nothing plays on the hero). The press that leads there leaves the hero's own action alone.

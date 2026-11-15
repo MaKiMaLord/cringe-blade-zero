@@ -272,6 +272,9 @@ inline int ClampEffectHits(int hits) { return std::clamp(hits, kEffectHitsMin, k
 // BOSS 技能的原生伤害、杀气和韧性倍率，100% 保留游戏原值。
 constexpr int kBossNativeDefault = 100, kBossNativeMin = 0, kBossNativeMax = 10000, kBossNativeStep = 25;
 inline int ClampBossNative(int percent) { return std::clamp(percent, kBossNativeMin, kBossNativeMax); }
+constexpr int kBossHitScale = 100, kBossHitMax = 100000000, kBossHitStep = 100;
+constexpr size_t kBossHitCountMax = 32;
+inline int ClampBossHit(int hundredths) { return std::clamp(hundredths, 0, kBossHitMax); }
 // 组合: its frame on the canvas (96-dpi units) and how deep frames may sit in one another.
 constexpr int kGroupMinW = 300, kGroupMinH = 180, kGroupNewW = 460, kGroupNewH = 300, kGroupMaxSize = 4000, kGroupDepthMax = 4;
 struct Node {
@@ -284,6 +287,7 @@ struct Node {
     std::string boss;  // BOSS 技能: the look (NPC skin id) whose move `ability` is
     bool native_enabled = false;  // 旧派生表保持原行为；首次调整卡片参数时启用原生结算
     int native_damage = kBossNativeDefault, native_anger = kBossNativeDefault, native_poise = kBossNativeDefault;
+    std::vector<int> native_hits;  // each native damage event in hundredths; empty keeps the multiplier mode
     std::string weapon;  // 武器派生: the weapon (backpack id) whose ability `ability` is; 处决 trigger: only this weapon's (empty: any)
     int group = -1;  // the 组合 node this node sits in (-1: none)
     int w = 0, h = 0;  // 组合: its frame's size
@@ -1884,6 +1888,10 @@ inline std::wstring Encode(const Config& config) {
         if (node.type == NodeType::BossSkill && node.native_enabled)
             text += "|v:" + std::to_string(i) + "," + std::to_string(ClampBossNative(node.native_damage)) + "," +
                     std::to_string(ClampBossNative(node.native_anger)) + "," + std::to_string(ClampBossNative(node.native_poise));
+        if (node.type == NodeType::BossSkill && !node.native_hits.empty()) {
+            text += "|d:" + std::to_string(i);
+            for (size_t hit = 0; hit < node.native_hits.size() && hit < kBossHitCountMax; ++hit) text += "," + std::to_string(ClampBossHit(node.native_hits[hit]));
+        }
     }
     // 主角体型 marks: "t:node" (an older build keeps an unwired 间隔).
     for (size_t i = 0; i < config.chain.size(); ++i) if (config.chain[i].type == NodeType::HeroSize) text += "|t:" + std::to_string(i);
@@ -1958,6 +1966,7 @@ inline Config Decode(const std::wstring& wide) {
     std::vector<int> own_looks;  // 不变身 BOSS 技能 / 投技 nodes
     struct NativeMark { int node, damage, anger, poise; };
     std::vector<NativeMark> native_marks;
+    std::vector<std::pair<int, std::vector<int>>> native_hit_marks;
     std::vector<int> hooks, auto_hooks;  // 钩子 nodes (written as 武器派生), and those that are 自动
     std::vector<int> air_sets;  // 空中派生 nodes (written as 武器派生修改)
     struct ReachMark { int node = -1, dist = kHookDistDefault, speed = kHookSpeedDefault; };
@@ -1998,6 +2007,15 @@ inline Config Decode(const std::wstring& wide) {
             if (f.size() == 4 && native_marks.size() < kMaxNodes && !f[0].empty() && std::isdigit(static_cast<unsigned char>(f[0][0])))
                 native_marks.push_back({std::atoi(f[0].c_str()), ClampBossNative(std::atoi(f[1].c_str())),
                                         ClampBossNative(std::atoi(f[2].c_str())), ClampBossNative(std::atoi(f[3].c_str()))});
+        } else if (part[0] == 'd') {
+            const std::vector<std::string> f = Split(part.substr(2), ',');
+            if (f.size() < 2 || f.size() > kBossHitCountMax + 1 || f[0].empty() || f[0].find_first_not_of("0123456789") != std::string::npos) continue;
+            std::vector<int> hits; bool valid = true;
+            for (size_t hit = 1; hit < f.size(); ++hit) {
+                if (f[hit].empty() || f[hit].find_first_not_of("0123456789") != std::string::npos) { valid = false; break; }
+                hits.push_back(ClampBossHit(std::atoi(f[hit].c_str())));
+            }
+            if (valid) native_hit_marks.push_back({std::atoi(f[0].c_str()), std::move(hits)});
         } else if (part[0] == 'g') {
             const std::string f = part.substr(2);
             if (!f.empty() && std::isdigit(static_cast<unsigned char>(f[0]))) hooks.push_back(std::atoi(f.c_str()));
@@ -2338,6 +2356,10 @@ inline Config Decode(const std::wstring& wide) {
     for (const NativeMark& mark : native_marks) if (mark.node >= 0 && mark.node < count) {
         Node& node = config.chain[static_cast<size_t>(mark.node)];
         if (node.type == NodeType::BossSkill) { node.native_enabled = true; node.native_damage = mark.damage; node.native_anger = mark.anger; node.native_poise = mark.poise; }
+    }
+    for (auto& mark : native_hit_marks) if (mark.first >= 0 && mark.first < count) {
+        Node& node = config.chain[static_cast<size_t>(mark.first)];
+        if (node.type == NodeType::BossSkill) { node.native_enabled = true; node.native_hits = std::move(mark.second); }
     }
     for (const int i : hooks) {
         if (i < 0 || i >= count) continue;

@@ -19,6 +19,7 @@ volatile LONG64 generation_ = 1;
 Run run_;
 ChainState chain_;
 WeaponInfo weapon_;
+NativeMeasure native_measure_;
 Logger logger_ = nullptr;
 constexpr wchar_t kSection[] = L"NpcCombo";
 constexpr wchar_t kExtension[] = L".combo";
@@ -370,6 +371,24 @@ void RecordWeapon(const std::wstring& name, float scale, bool ok) {
     ReleaseSRWLockExclusive(&lock_);
 }
 WeaponInfo LastWeapon() { AcquireSRWLockShared(&lock_); WeaponInfo copy = weapon_; ReleaseSRWLockShared(&lock_); return copy; }
+void RequestNativeMeasure(const std::string& profile, int node, const std::string& ability) {
+    AcquireSRWLockExclusive(&lock_); native_measure_.profile=profile;native_measure_.node=node;native_measure_.ability=ability;
+    native_measure_.state=kMeasureArmed;native_measure_.values.clear();++native_measure_.serial;ReleaseSRWLockExclusive(&lock_);
+}
+void CancelNativeMeasure(const std::string& profile,int node) {
+    AcquireSRWLockExclusive(&lock_);if(native_measure_.profile==profile&&native_measure_.node==node){native_measure_.state=kMeasureOff;native_measure_.values.clear();++native_measure_.serial;}
+    ReleaseSRWLockExclusive(&lock_);
+}
+NativeMeasure GetNativeMeasure(){AcquireSRWLockShared(&lock_);NativeMeasure copy=native_measure_;ReleaseSRWLockShared(&lock_);return copy;}
+bool BeginNativeMeasure(const std::string& profile,int node,const std::string& ability){
+    AcquireSRWLockExclusive(&lock_);const bool match=native_measure_.state==kMeasureArmed&&native_measure_.profile==profile&&native_measure_.node==node&&native_measure_.ability==ability;
+    if(match){native_measure_.state=kMeasureRunning;native_measure_.values.clear();++native_measure_.serial;}ReleaseSRWLockExclusive(&lock_);return match;
+}
+void FinishNativeMeasure(const std::string& profile,int node,const std::vector<int>& values){
+    AcquireSRWLockExclusive(&lock_);if(native_measure_.state==kMeasureRunning&&native_measure_.profile==profile&&native_measure_.node==node){
+        native_measure_.values=values;native_measure_.state=values.empty()?kMeasureFailed:kMeasureDone;++native_measure_.serial;}
+    ReleaseSRWLockExclusive(&lock_);
+}
 bool ShowToast() { return SettingsStore::GetBool(kSection, kShowToast, true); }
 void PublishChain(const ChainState& state) { AcquireSRWLockExclusive(&lock_); chain_ = state; ReleaseSRWLockExclusive(&lock_); }
 ChainState GetChain() { AcquireSRWLockShared(&lock_); ChainState copy = chain_; ReleaseSRWLockShared(&lock_); return copy; }
