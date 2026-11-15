@@ -3645,10 +3645,10 @@ Hit HitTest(POINT p) {
                            node.type==NodeType::AutoDodge||node.type==NodeType::BossSkill||node.type==NodeType::WeaponMove||node.type==NodeType::Teleport||node.type==NodeType::PreInput||
                            node.type==NodeType::WeaponActions||node.type==NodeType::Hook||node.type==NodeType::Trim||(node.type==NodeType::Plugin&&PluginHasValue(node));
         int native_field=-1;Part native_part=Part::None;
-        if(node.type==NodeType::BossSkill)for(int k=0;k<3;++k){
-            if(in(s.native_minus[k])){native_field=k;native_part=Part::NodeNativeMinus;break;}
-            if(in(s.native_plus[k])){native_field=k;native_part=Part::NodeNativePlus;break;}
-            if(in(s.native_value[k])){native_field=k;native_part=Part::NodeNativeValue;break;}
+        if(node.type==NodeType::BossSkill)for(int parameter_index=0;parameter_index<3;++parameter_index){
+            if(in(s.native_minus[parameter_index])){native_field=parameter_index;native_part=Part::NodeNativeMinus;break;}
+            if(in(s.native_plus[parameter_index])){native_field=parameter_index;native_part=Part::NodeNativePlus;break;}
+            if(in(s.native_value[parameter_index])){native_field=parameter_index;native_part=Part::NodeNativeValue;break;}
         }
         if (route_out>=0) hit={Part::RouteOut,i,route_out};
         else if (s.has_out&&Near(p,s.out,pin)) hit={Part::NodeOut,i};
