@@ -6017,7 +6017,7 @@ void ApplyNativeMeasure(){
         NpcCombo::Config chain=NpcCombo::Load(measured.profile);
         if(measured.node>=0&&static_cast<size_t>(measured.node)<chain.chain.size()){
             Node& node=chain.chain[static_cast<size_t>(measured.node)];
-            if(node.type==NodeType::BossSkill&&node.ability==measured.ability){node.native_hits=measured.values;node.native_enabled=true;node.native_damage=NpcCombo::kBossNativeDefault;
+            if(node.type==NodeType::BossSkill&&node.ability==measured.ability){node.native_hits=measured.values;node.native_hit_ms=measured.times;node.native_enabled=true;node.native_damage=NpcCombo::kBossNativeDefault;
                 NpcCombo::Save(measured.profile,chain);saved=true;}}
     }
     if(saved){DebugHub::Notify((Tr(L"已读取 ")+std::to_wstring(measured.values.size())+Tr(L" 段原生伤害")).c_str());

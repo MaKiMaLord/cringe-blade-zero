@@ -373,20 +373,20 @@ void RecordWeapon(const std::wstring& name, float scale, bool ok) {
 WeaponInfo LastWeapon() { AcquireSRWLockShared(&lock_); WeaponInfo copy = weapon_; ReleaseSRWLockShared(&lock_); return copy; }
 void RequestNativeMeasure(const std::string& profile, int node, const std::string& ability) {
     AcquireSRWLockExclusive(&lock_); native_measure_.profile=profile;native_measure_.node=node;native_measure_.ability=ability;
-    native_measure_.state=kMeasureArmed;native_measure_.values.clear();++native_measure_.serial;ReleaseSRWLockExclusive(&lock_);
+    native_measure_.state=kMeasureArmed;native_measure_.values.clear();native_measure_.times.clear();++native_measure_.serial;ReleaseSRWLockExclusive(&lock_);
 }
 void CancelNativeMeasure(const std::string& profile,int node) {
-    AcquireSRWLockExclusive(&lock_);if(native_measure_.profile==profile&&native_measure_.node==node){native_measure_.state=kMeasureOff;native_measure_.values.clear();++native_measure_.serial;}
+    AcquireSRWLockExclusive(&lock_);if(native_measure_.profile==profile&&native_measure_.node==node){native_measure_.state=kMeasureOff;native_measure_.values.clear();native_measure_.times.clear();++native_measure_.serial;}
     ReleaseSRWLockExclusive(&lock_);
 }
 NativeMeasure GetNativeMeasure(){AcquireSRWLockShared(&lock_);NativeMeasure copy=native_measure_;ReleaseSRWLockShared(&lock_);return copy;}
 bool BeginNativeMeasure(const std::string& profile,int node,const std::string& ability){
     AcquireSRWLockExclusive(&lock_);const bool match=native_measure_.state==kMeasureArmed&&native_measure_.profile==profile&&native_measure_.node==node&&native_measure_.ability==ability;
-    if(match){native_measure_.state=kMeasureRunning;native_measure_.values.clear();++native_measure_.serial;}ReleaseSRWLockExclusive(&lock_);return match;
+    if(match){native_measure_.state=kMeasureRunning;native_measure_.values.clear();native_measure_.times.clear();++native_measure_.serial;}ReleaseSRWLockExclusive(&lock_);return match;
 }
-void FinishNativeMeasure(const std::string& profile,int node,const std::vector<int>& values){
+void FinishNativeMeasure(const std::string& profile,int node,const std::vector<int>& values,const std::vector<int>& times){
     AcquireSRWLockExclusive(&lock_);if(native_measure_.state==kMeasureRunning&&native_measure_.profile==profile&&native_measure_.node==node){
-        native_measure_.values=values;native_measure_.state=values.empty()?kMeasureFailed:kMeasureDone;++native_measure_.serial;}
+        native_measure_.values=values;native_measure_.times=times;native_measure_.state=values.empty()||values.size()!=times.size()?kMeasureFailed:kMeasureDone;++native_measure_.serial;}
     ReleaseSRWLockExclusive(&lock_);
 }
 bool ShowToast() { return SettingsStore::GetBool(kSection, kShowToast, true); }

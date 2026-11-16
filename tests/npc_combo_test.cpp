@@ -562,16 +562,18 @@ int main() {
         Check(!bb.native_enabled && btext.find(L"|v:") == std::wstring::npos,
               "an old BOSS skill keeps the previous damage behavior until its native values are edited");
         Config native = bc;Node& tuned = native.chain[static_cast<size_t>(x)];
-        tuned.native_enabled = true;tuned.native_damage = 250;tuned.native_anger = 0;tuned.native_poise = 175;tuned.native_hits={30250,12000,4555};
+        tuned.native_enabled = true;tuned.native_damage = 250;tuned.native_anger = 0;tuned.native_poise = 175;tuned.native_hits={0,0,30250};tuned.native_hit_ms={4100,7900,9050};
         const std::wstring native_text = Encode(native);const Config native_back = Decode(native_text);
         const Node& read_native = native_back.chain[static_cast<size_t>(x)];
-        Check(native_text.find(L"|v:" + std::to_wstring(x) + L",250,0,175") != std::wstring::npos && native_text.find(L"|d:"+std::to_wstring(x)+L",30250,12000,4555")!=std::wstring::npos && read_native.native_enabled &&
-              read_native.native_damage == 250 && read_native.native_anger == 0 && read_native.native_poise == 175 && read_native.native_hits==std::vector<int>({30250,12000,4555}) && Encode(native_back) == native_text,
-              "native BOSS multipliers and measured hit values survive saving and loading");
-        std::wstring old_text = native_text;for(const wchar_t* prefix:{L"|v:",L"|d:"}){const auto marker=old_text.find(prefix);if(marker!=std::wstring::npos){const auto end=old_text.find(L'|',marker+1);old_text.erase(marker,end==std::wstring::npos?end:end-marker);}}
+        Check(native_text.find(L"|v:" + std::to_wstring(x) + L",250,0,175") != std::wstring::npos && native_text.find(L"|d:"+std::to_wstring(x)+L",0,0,30250")!=std::wstring::npos &&
+              native_text.find(L"|m:"+std::to_wstring(x)+L",4100,7900,9050")!=std::wstring::npos && read_native.native_enabled &&
+              read_native.native_damage == 250 && read_native.native_anger == 0 && read_native.native_poise == 175 && read_native.native_hits==std::vector<int>({0,0,30250}) &&
+              read_native.native_hit_ms==std::vector<int>({4100,7900,9050}) && Encode(native_back) == native_text,
+              "native BOSS multipliers, measured hit values and their times survive saving and loading");
+        std::wstring old_text = native_text;for(const wchar_t* prefix:{L"|v:",L"|d:",L"|m:"}){const auto marker=old_text.find(prefix);if(marker!=std::wstring::npos){const auto end=old_text.find(L'|',marker+1);old_text.erase(marker,end==std::wstring::npos?end:end-marker);}}
         const Config old_back = Decode(old_text);const Node& old_native = old_back.chain[static_cast<size_t>(x)];
-        Check(old_back.chain.size() == native_back.chain.size() && !old_native.native_enabled && old_native.native_hits.empty() && old_native.native_damage == 100 && old_native.native_anger == 100 && old_native.native_poise == 100,
-              "a reader without the v:/d: marks keeps node indices and the old BOSS behavior");
+        Check(old_back.chain.size() == native_back.chain.size() && !old_native.native_enabled && old_native.native_hits.empty() && old_native.native_hit_ms.empty() && old_native.native_damage == 100 && old_native.native_anger == 100 && old_native.native_poise == 100,
+              "a reader without the v:/d:/m: marks keeps node indices and the old BOSS behavior");
         Config empty = bc; empty.chain[static_cast<size_t>(x)].ability.clear();
         Check(!IsMove(empty.chain[static_cast<size_t>(x)]) && EmptyMove(empty.chain[static_cast<size_t>(x)]) && Follow(empty, 0, K, key, 100).move == 1,
               "a boss node without its move is passed over: the press plays B");
