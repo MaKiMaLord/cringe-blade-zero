@@ -52,8 +52,9 @@ float Clip(const std::string& ability);
 struct WeaponInfo { std::wstring name; float scale = 1; bool ok = false; uint64_t serial = 0; };
 void RecordWeapon(const std::wstring& name, float scale, bool ok);
 WeaponInfo LastWeapon();
-// BOSS 技能卡片的“读取下一次”：页面提交一次请求，运行端在该节点下一次命中同一个目标时复用技能伤害
-// 监视器记录每次生命值下降，完成后页面把 values（百分之一伤害）写回该节点。Any thread, no engine calls.
+// BOSS 技能卡片的“读取下一次”：页面提交一次请求，运行端在该节点下一次命中同一个目标时按能力来源
+// 记录每次 TakeDamage（包括 0），再用技能伤害监视器校正实际生命值下降；页面把 values（百分之一伤害）
+// 写回该节点。Any thread, no engine calls.
 struct NativeMeasure { std::string profile, ability; int node = -1; int state = 0; std::vector<int> values; uint64_t serial = 0; };
 enum : int { kMeasureOff = 0, kMeasureArmed = 1, kMeasureRunning = 2, kMeasureDone = 3, kMeasureFailed = 4 };
 void RequestNativeMeasure(const std::string& profile, int node, const std::string& ability);
