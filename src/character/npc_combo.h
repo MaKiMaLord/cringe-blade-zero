@@ -55,7 +55,7 @@ WeaponInfo LastWeapon();
 // BOSS 技能卡片的“读取下一次”：页面提交一次请求，运行端用临时探针让原为 0 的判定也产生可观察的
 // 生命值下降，记录每段原值和相对技能开始的时间；页面把 values（百分之一伤害）及 times 写回节点。
 // Any thread, no engine calls.
-struct NativeMeasure { std::string profile, ability; int node = -1; int state = 0; std::vector<int> values, times; uint64_t serial = 0; };
+struct NativeMeasure { std::string profile, ability; int node = -1; int state = 0, misses = 0; std::vector<int> values, times; uint64_t serial = 0; };
 enum : int { kMeasureOff = 0, kMeasureArmed = 1, kMeasureRunning = 2, kMeasureDone = 3, kMeasureFailed = 4 };
 void RequestNativeMeasure(const std::string& profile, int node, const std::string& ability);
 void CancelNativeMeasure(const std::string& profile, int node);

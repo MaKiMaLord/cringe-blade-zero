@@ -588,13 +588,18 @@ int wmain(int argc, wchar_t** argv) {
         check(!now().chain[static_cast<size_t>(speed_node)].curve && now().chain[static_cast<size_t>(speed_node)].points.size() == 3 && now().chain[static_cast<size_t>(speed_node)].speed == 150,
               "曲线调节 off again: the one multiplier, the curve kept");
     }
-    // A move's 派生点: − / + by 0.05 s, typed in seconds (0: when it ends), at most 10 s.
+    // A move's 派生点: positive cuts in, zero waits for the end, negative buffers input over the animation tail.
     ComboMenu::Probe::Show(free_node);
+    NpcCombo::RecordClip(NpcCombo::DurationKey(now().chain[static_cast<size_t>(free_node)],moves.profile),1.2f);
     check(now().chain[static_cast<size_t>(free_node)].ms == 0, "a new move has no 派生点 (cut when it ends)");
     click(ComboMenu::Probe::Plus(free_node));
     check(now().chain[static_cast<size_t>(free_node)].ms == NpcCombo::kCancelStep, "a move's 派生点 + adds 0.05 s");
     click(ComboMenu::Probe::Minus(free_node)); click(ComboMenu::Probe::Minus(free_node));
-    check(now().chain[static_cast<size_t>(free_node)].ms == 0, "its − stops at 0");
+    check(now().chain[static_cast<size_t>(free_node)].ms == -NpcCombo::kCancelStep, "its − crosses zero into a tail pre-input window");
+    click(ComboMenu::Probe::Value(free_node));type(L"-0.5");key_down(VK_RETURN);
+    check(now().chain[static_cast<size_t>(free_node)].ms==-500,"typing -0.5 buffers an input in the final 0.5 s without a cut point");
+    click(ComboMenu::Probe::Value(free_node));type(L"-25");key_down(VK_RETURN);
+    check(now().chain[static_cast<size_t>(free_node)].ms==-1200,"a negative value is limited by the displayed 1.2 s animation");
     click(ComboMenu::Probe::Value(free_node));
     check(ComboMenu::Probe::Editing(), "clicking a move's 派生点 starts typing");
     type(L"0.4"); key_down(VK_RETURN);

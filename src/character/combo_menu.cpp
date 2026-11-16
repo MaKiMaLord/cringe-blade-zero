@@ -658,6 +658,10 @@ bool IsKey(int index) { const Node* n=At(index); return n&&n->type==NodeType::Tr
 bool IsPreInputAt(int index) { const Node* n=At(index); return n&&NpcCombo::IsPreInput(*n); }
 bool IsSettingAt(int index) { const Node* n=At(index); return n&&NpcCombo::IsSetting(*n); }
 std::wstring PreInputText(int ms) { return ms>0?Seconds(ms/1000.0):Tr(L"不清除"); }
+std::wstring CancelText(int ms) {
+    ms=NpcCombo::ClampCancel(ms);
+    return ms<0?Tr(L"末段预输入 ")+Seconds(-ms/1000.0):ms>0?Seconds(ms/1000.0):Tr(L"放完");
+}
 // ---- 组合 frames ------------------------------------------------------------------------------------
 // A 组合 is a frame on the canvas: the nodes in it (Node::group) play one after another as one move of the chain. Its
 // own pins sit on its header; the nodes in it wire only to each other (their order), never out of the frame.
@@ -1261,6 +1265,13 @@ std::wstring AnimationDuration(size_t index) {
     if(node.type==NodeType::AutoDodge||node.hook_auto)text+=Tr(L" · 最近一次");
     return text;
 }
+int TailPreInputLimit(size_t index){
+    if(index>=config_.chain.size()||config_.chain[index].type==NodeType::Group||!NpcCombo::HasAnimation(config_.chain[index]))return 0;
+    const Node& node=config_.chain[index];const float full=NpcCombo::Clip(NpcCombo::DurationKey(node,moves_.profile));if(!(full>0))return 0;
+    NpcCombo::TrimRange trim=NpcCombo::TrimFor(config_,static_cast<int>(index));if(trim.from>=full)trim={};
+    const double seconds=trim.on?NpcCombo::TrimSpan(trim,full):full;
+    return std::clamp(static_cast<int>(std::lround(seconds*1000.0)),0,NpcCombo::kCancelMax);
+}
 SIZE MeasureNode(HDC dc,size_t index) {
     SIZE size=MeasureNodeBody(dc,index);
     if(NpcCombo::HasAnimation(config_.chain[index])){size.cy+=kRow;size.cx=(std::max)(size.cx,340L);}
@@ -1699,8 +1710,11 @@ void Nudge(int index,int dir,int route=-1) {
         node.trim_from=from;
     }
     else if (node.type==NodeType::Skill||node.type==NodeType::AutoDodge||node.type==NodeType::BossSkill||node.type==NodeType::WeaponMove||node.type==NodeType::Hook||node.type==NodeType::Teleport||
-             node.type==NodeType::Group)
-        node.ms=NpcCombo::ClampCancel(node.ms+dir*NpcCombo::kCancelStep);
+             node.type==NodeType::Group){
+        const int wanted=NpcCombo::ClampCancel(node.ms+dir*NpcCombo::kCancelStep),limit=TailPreInputLimit(static_cast<size_t>(index));
+        node.ms=wanted<0?(limit>0?(std::max)(wanted,-limit):0):wanted;
+        if(wanted<0&&limit<=0)DebugHub::Notify(Tr(L"请先播放或预览这一招，读取动画时长后再设置负值").c_str());
+    }
     else if (node.type==NodeType::Branch&&route>=0&&static_cast<size_t>(route)<node.routes.size())
         node.routes[static_cast<size_t>(route)].pause_ms=NpcCombo::ClampPause(node.routes[static_cast<size_t>(route)].pause_ms+dir*NpcCombo::kPauseStep);
     else if (node.type==NodeType::Plugin) {
@@ -1851,10 +1865,12 @@ void CommitEdit() {
             node->trim_from=NpcCombo::ClampTrim(ms);
             if (node->trim_from!=ms) DebugHub::Notify(Tr(L"裁剪时间在 0 到 60 秒之间，已调整。").c_str());
             Save();
-        } else if (end&&end!=done.text.c_str()&&node->type!=NodeType::Speed&&node->type!=NodeType::Damage&&value>=0) {
+        } else if (end&&end!=done.text.c_str()&&node->type!=NodeType::Speed&&node->type!=NodeType::Damage) {
             const int ms=static_cast<int>(std::lround(value*1000));
-            node->ms=NpcCombo::ClampCancel(ms);
-            if (node->ms!=ms) DebugHub::Notify(Tr(L"派生点在 0 到 10 秒之间，已调整。").c_str());
+            const int signed_ms=NpcCombo::ClampCancel(ms),limit=TailPreInputLimit(static_cast<size_t>(done.node));
+            node->ms=signed_ms<0?(limit>0?(std::max)(signed_ms,-limit):0):signed_ms;
+            if(signed_ms<0&&limit<=0)DebugHub::Notify(Tr(L"请先播放或预览这一招，读取动画时长后再设置负值").c_str());
+            else if(node->ms!=ms)DebugHub::Notify(Tr(L"正值最多 10 秒；负值不能超过这招的动画时长，已调整。").c_str());
             Save();
         }
     }
@@ -1873,9 +1889,10 @@ bool EditKey(WPARAM key) {
 }
 void EditChar(wchar_t c) {
     if (c==L',') c=L'.';
-    if (!((c>=L'0'&&c<=L'9')||c==L'.')) return;
+    if (!((c>=L'0'&&c<=L'9')||c==L'.'||c==L'-')) return;
     if (edit_.fresh) { edit_.text.clear(); edit_.fresh=false; }
     if (c==L'.'&&edit_.text.find(L'.')!=std::wstring::npos) return;
+    if(c==L'-'&&(!edit_.text.empty()||edit_.text.find(L'-')!=std::wstring::npos))return;
     if (edit_.text.size()<12) edit_.text.push_back(c);
     Invalidate();
 }
@@ -4150,7 +4167,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
         Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
         const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
         const int cancel=NpcCombo::ClampCancel(node.ms);
-        Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+        Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
         if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
         if (NpcCombo::GroupSteps(config_,index).empty()) {
             RECT body{s.rect.left+Px(12),Row(s.rect,1).top,s.rect.right-Px(12),s.rect.bottom-Px(12)};
@@ -4468,7 +4485,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
             const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
-            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
             break;
         }
@@ -4489,7 +4506,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
             const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
-            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
             break;
         }
@@ -4508,7 +4525,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
             const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
-            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
             break;
         }
@@ -4591,7 +4608,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
             const bool editing=edit_.node==index&&edit_.native<0&&edit_.hit<0,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
-            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
             CheckRow(dc,graphics,s.toggle,node.own_look||ChainOwnLook(i),hot_==Hit{Part::NodeToggle,index},OwnLookText(i));
             break;
@@ -4682,7 +4699,7 @@ void DrawCanvas(HDC dc,Gdiplus::Graphics& graphics) {
             Label(dc,Tr(L"多久后可接下一招"),label,Scaled(UiTheme::Font::Small),muted,DT_SINGLELINE|DT_VCENTER|DT_LEFT|DT_END_ELLIPSIS);
             const bool editing=edit_.node==index,caret=(GetTickCount64()/530)%2==0;
             const int cancel=NpcCombo::ClampCancel(node.ms);
-            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":cancel?Seconds(cancel/1000.0):Tr(L"放完"));
+            Stepper(dc,graphics,s,index,editing?edit_.text+(caret?L"▏":L" ")+L" s":CancelText(cancel));
             if (editing) Rounded(graphics,s.value,static_cast<float>(Px(5)),0,0,accent,255,(std::max)(1.5f,2.f*Zoom()));
             break;
         }
@@ -6011,6 +6028,7 @@ void HudShutdown() {
 }
 void ApplyNativeMeasure(){
     const NpcCombo::NativeMeasure measured=NpcCombo::GetNativeMeasure();if(measured.serial==measure_serial_)return;measure_serial_=measured.serial;
+    if(measured.state==NpcCombo::kMeasureArmed&&measured.misses>0){DebugHub::Notify(Tr(L"这次没有命中目标，读取仍在等待下一次施放").c_str());Invalidate();return;}
     if(measured.state!=NpcCombo::kMeasureDone&&measured.state!=NpcCombo::kMeasureFailed)return;
     bool saved=false;
     if(measured.state==NpcCombo::kMeasureDone&&!measured.values.empty()){

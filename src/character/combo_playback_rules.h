@@ -4,6 +4,14 @@
 #include <vector>
 
 namespace ComboPlayback {
+// A negative move value is measured backwards from the end of the montage part shown on the card. It opens an input
+// window only; it does not make the playing move cuttable. Montage coordinates keep this correct under speed curves,
+// hit stop and custom time dilation.
+inline bool TailPreInputWindow(double position,double begin,double end,int lead_ms){
+    if(lead_ms<=0||!(end>begin)||position<begin)return false;
+    const double open=end-static_cast<double>(lead_ms)/1000.0;
+    return position+0.00001>=(open>begin?open:begin)&&position<end+0.05;
+}
 // An implicit same-trigger restart waits for completion, not a derivation point.
 // Explicit wires (including loops) never use this gate.
 inline bool RestartFinished(bool starting,bool group_has_next,bool ability_active,bool action_busy){

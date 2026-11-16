@@ -236,7 +236,8 @@ enum ModSlot : int { kModSpeed, kModArmor, kModWeapon, kModInterrupt, kModDamage
 inline constexpr std::array<int, kModSlots> NoMods() { std::array<int, kModSlots> mods{}; for (size_t i = 0; i < mods.size(); ++i) mods[i] = -1; return mods; }
 // A node on the page's canvas: x, y its top-left (96-dpi units); next the node its exec output is wired to (-1
 // none). A branch has no `next`: each route is an output of its own. A modifier has neither. A move's `ms` is its
-// 派生点: how long after it starts the next move may cut it (0: when it ends).
+// 派生点: positive means how long after it starts the next move may cut it; 0 waits for the natural end; negative is
+// a tail pre-input window and never cuts the move (for example -500 keeps a press made in the final 0.5 s).
 // 瞬移: how far in front of the target the hero lands (capsule centre to centre, cm) and how high above the ground.
 constexpr int kTeleportDistMin = 50, kTeleportDistMax = 1000, kTeleportDistDefault = 150, kTeleportDistStep = 10;
 constexpr int kTeleportLiftMin = 0, kTeleportLiftMax = 300, kTeleportLiftDefault = 30, kTeleportLiftStep = 5;
@@ -338,7 +339,7 @@ inline std::vector<int> TrimHolds(std::vector<int> points){
 constexpr int kIntervalMin = 50, kIntervalMax = 10000, kIntervalDefault = 500, kIntervalStep = 50;
 constexpr int kResetMin = 100, kResetMax = 5000, kResetDefault = 1200, kResetStep = 100;
 constexpr int kSpeedMin = 50, kSpeedMax = 1000, kSpeedDefault = 100, kSpeedNew = 150, kSpeedStep = 10;
-constexpr int kCancelMin = 0, kCancelMax = 10000, kCancelStep = 50;
+constexpr int kCancelMin = -10000, kCancelMax = 10000, kCancelStep = 50;
 constexpr int kPauseMin = 0, kPauseMax = 10000, kPauseStep = 100;
 constexpr int kDamageMin = 0, kDamageMax = 1000, kDamageDefault = 100, kDamageNew = 200, kDamageStep = 10;
 constexpr int kPreInputMin = 0, kPreInputMax = 5000, kPreInputDefault = 300, kPreInputStep = 50;
@@ -1305,12 +1306,19 @@ inline int MaxPause(const Config& config, int move) {
     for (const Route& route : config.chain[static_cast<size_t>(branch)].routes) if (route.next >= 0) most = (std::max)(most, ClampPause(route.pause_ms));
     return most;
 }
-// A move's 派生点 in ms from its start (0: none, it is cut when it ends).
+// A move's positive 派生点 in ms from its start (0: none, it is cut when it ends). A negative value is deliberately
+// not a cut point: TailPreInputOf exposes it separately as a natural-end input window.
 inline int CancelOf(const Config& config, int move) {
     if (move < 0 || static_cast<size_t>(move) >= config.chain.size() || !IsMove(config.chain[static_cast<size_t>(move)]) ||
         config.chain[static_cast<size_t>(move)].type == NodeType::Grab || config.chain[static_cast<size_t>(move)].type == NodeType::Assist ||
         config.chain[static_cast<size_t>(move)].type == NodeType::Plugin || IsLookChange(config.chain[static_cast<size_t>(move)])) return 0;
-    return ClampCancel(config.chain[static_cast<size_t>(move)].ms);
+    return (std::max)(0, ClampCancel(config.chain[static_cast<size_t>(move)].ms));
+}
+inline int TailPreInputOf(const Config& config, int move) {
+    if (move < 0 || static_cast<size_t>(move) >= config.chain.size() || !IsMove(config.chain[static_cast<size_t>(move)]) ||
+        config.chain[static_cast<size_t>(move)].type == NodeType::Grab || config.chain[static_cast<size_t>(move)].type == NodeType::Assist ||
+        config.chain[static_cast<size_t>(move)].type == NodeType::Plugin || IsLookChange(config.chain[static_cast<size_t>(move)])) return 0;
+    return (std::max)(0, -ClampCancel(config.chain[static_cast<size_t>(move)].ms));
 }
 // When the next move may cut a playing one, in ms from its start: its 派生点 or the end of the intervals straight
 // after it, whichever comes first (0: neither, it is cut when it ends).

@@ -89,6 +89,10 @@ int main() {
     Check(CutMs(tree, 2) == 0 && CancelOf(tree, 2) == 0, "no 派生点 and no interval after it: a move is cut when it ends");
     tree.chain[2].ms = 400;
     Check(CancelOf(tree, 2) == 400 && CutMs(tree, 2) == 400, "a 派生点 of 0.4 s");
+    tree.chain[2].ms = -400;
+    Check(CancelOf(tree, 2) == 0 && CutMs(tree, 2) == 0 && TailPreInputOf(tree, 2) == 400,
+          "a negative value is a 0.4 s tail pre-input window, never a cut point");
+    { const Config back=Decode(Encode(tree)); Check(back.chain[2].ms==-400&&TailPreInputOf(back,2)==400,"a negative tail pre-input survives save/load"); }
     tree.chain[1].ms = 99999;
     Check(CancelOf(tree, 1) == kCancelMax && kCancelMax == 10000 && CancelOf(tree, 3) == 0 && CancelOf(tree, 0) == 0, "a 派生点 is at most 10 s; only moves have one");
     tree.chain[1].ms = 0; tree.chain[2].ms = 0;
