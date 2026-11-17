@@ -57,7 +57,7 @@ const Spec kSpecs[kCount] = {
     {L"ShowNpc", L"NPC 重定向", {}, {}, {}},
     {L"ShowAir", L"空中技能 / JC", {}, {}, {}},
     {L"ShowGrab", L"投技", {}, {}, {}},
-    {L"ShowGroom", L"毛发 / Groom", KeyChord(VK_F7), {}, {}},
+    {L"ShowGroom", L"毛发 / Groom", {}, {}, {}},
     {L"ShowWeapons", L"武器预设", {}, {}, {}},
     {L"HairMode", L"蒙皮 / Groom", KeyChord(VK_F8), {}, {}},
     {L"GpuBounds", L"GPU 包围盒", KeyChord(VK_F9), {}, {}},
@@ -69,7 +69,7 @@ const Spec kSpecs[kCount] = {
     {L"GearUp", L"提升挡位", KeyChord(VK_OEM_PLUS), {}, {}},
     {L"GearDown", L"降低挡位", KeyChord(VK_OEM_MINUS), {}, {}},
     {L"NpcSkill", L"施放 NPC 技能", KeyChord('X'), XboxChord(kL3 | kR3), PsChord(kL3 | kR3)},
-    {L"BodyEditor", L"身材 / 骨骼编辑器", KeyChord(VK_F11), {}, {}},  // F7 is 毛发 / Groom's
+    {L"BodyEditor", L"身材 / 骨骼编辑器", KeyChord(VK_F11), {}, {}}
 };
 // Binding slots in Device order: keyboard, Xbox, PlayStation.
 constexpr int kSlots = 3;
@@ -102,8 +102,8 @@ enum class Mark : unsigned char { Key, Disc, Cross, Ring, Square, Triangle, Stic
 // (PS Create reuses the Options shape, as the game has no Create icon).
 struct Part { Mark mark; std::wstring text; COLORREF color; int direction; int asset = -1; bool mirror = false; };
 
-// User 10-31: page shortcuts keep their defaults (F7 = Groom) and are not
-// listed or read from the ini; only action hotkeys are editable.
+// Page shortcuts keep their compiled defaults and are not listed or read from
+// the ini; only action hotkeys are editable.
 bool Fixed(int index) {
     return index >= static_cast<int>(Action::ShowBoss) && index <= static_cast<int>(Action::ShowWeapons);
 }
