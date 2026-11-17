@@ -172,7 +172,7 @@ cmake --build build --config Release --target version
 | 提升 / 降低挡位 | `=` / `-` | — | — |
 | 显示 / 隐藏面板 | `F10` | `View` + `Menu` | `Create` + `Options` |
 | 返回 / 隐藏面板 · 切换页面 | `Esc` · `Ctrl` + `Tab` | `B` · `LB` / `RB` | `○` · `L1` / `R1` |
-| 毛发页 · 蒙皮 / Groom 切换 | `F7` · `F8` | — | — |
+| 毛发页 · 蒙皮 / Groom 切换 | — · `F8` | — | — |
 | 强制 Groom · 套装解锁 | `F6` · `Shift` + `F6` | — | — |
 | GPU 包围盒 · 自适应扳机 | `F9` · `Shift` + `F9` | — | — |
 
