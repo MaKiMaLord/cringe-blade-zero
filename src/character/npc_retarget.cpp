@@ -5656,7 +5656,7 @@ struct ComboRun {
     enum class Phase { Idle, Starting, Running };
     int32_t owner=-2;uint64_t generation=0;NpcCombo::Config config; // owner: -1 the hero's own chain, -2 none
     int trigger=-1,cursor=-1,button=0,playing=-1,reset_ms=NpcCombo::kResetDefault;Phase phase=Phase::Idle;
-    NpcCombo::Hop queued;ULONGLONG queued_at=0,queued_ready=0;bool hold=false,tail_input=false; // queued.move<0: no press waiting; hold: after the playing move; tail_input: captured by a negative natural-end window
+    NpcCombo::Hop queued;ULONGLONG queued_at=0,queued_ready=0;bool hold=false,tail_input=false; // queued.move<0: no press waiting; hold: after the playing move; tail_input: captured at a negative end-relative cut point
     uint64_t visit=0; // changes even when a loop re-enters the same node
     ComboPlayback::NodeClock path_clock,step_clock,restart_clock; // restart waits without changing the live cursor
     ULONGLONG ended_at=0; // when the last move ended (the wait for the next press counts from there)
@@ -6984,31 +6984,31 @@ std::string PlayingName() {
 }
 // May the playing move be cut now: it is under 允许中断 (any time), its 派生点 or the intervals straight after it are
 // over (an interval holds the next move to its end), or without either it has ended?
+bool TailPreInputWindow();
 bool MoveCut(ULONGLONG now) {
     if(charge_pause_.active)return false;
     if(combo_.phase==ComboRun::Phase::Starting)return false;
     if(combo_.phase!=ComboRun::Phase::Running)return true;
     if(ChainGrabActive())return GrabCuttable(now);  // a paired grab: only under 允许中断
-    bool natural_end=false;
     if(group_.index>=0){
         // A 组合: cut at any time under 允许中断 (its own, its step's or the trigger's), at its own 派生点 from its
         // start, else only after its last step (that step's 派生点 or end, below); never between its steps.
-        natural_end=NpcCombo::TailPreInputOf(combo_.config,group_.index)>0;
-        if(!natural_end&&NpcCombo::InterruptFor(combo_.config,combo_.trigger,combo_.playing))return true;
+        if(NpcCombo::InterruptFor(combo_.config,combo_.trigger,combo_.playing))return true;
         const int own=NpcCombo::CancelOf(combo_.config,group_.index);
         if(own>0&&now>=group_.started+static_cast<ULONGLONG>(own))return true;
+        if(NpcCombo::TailPreInputOf(combo_.config,group_.index)>0&&TailPreInputWindow())return true;
         if(group_.step+1<group_.steps.size())return false;
     }
     if(PlayingGrab()){const MotianGrab::Snapshot s=MotianGrab::GetSnapshot();return !s.active||s.hero_free;}  // a paired grab is never cut short
-    const bool natural=natural_end||NpcCombo::TailPreInputOf(combo_.config,combo_.playing)>0;
-    if(!natural&&NpcCombo::InterruptFor(combo_.config,combo_.trigger,combo_.playing))return true;
+    if(NpcCombo::InterruptFor(combo_.config,combo_.trigger,combo_.playing))return true;
     if(PlayingTeleport()&&TeleportBusy())return false;  // landing first
     const int cut=NpcCombo::CancelOf(combo_.config,combo_.playing);
     if(cut>0&&now>=combo_.started+static_cast<ULONGLONG>(cut))return true;
+    if(NpcCombo::TailPreInputOf(combo_.config,combo_.playing)>0&&TailPreInputWindow())return true;
     WatchSkill();return skill_.handle<=0;
 }
-// Is the current montage inside the negative value's tail window? Montage coordinates keep it attached to the
-// animation under 加速, curves, hit stop and time dilation.
+// Is the current montage past the negative value's end-relative cut point? Montage coordinates keep it attached to
+// the animation tail under 加速, curves, hit stop and time dilation.
 bool TailPreInputWindow(){
     if(combo_.phase!=ComboRun::Phase::Running||combo_.playing<0)return false;
     int source=combo_.playing;
@@ -7077,7 +7077,7 @@ void Queue(const ComboPress& where,ULONGLONG now,const char* source,bool hold) {
     char replaced[64]="";if(before.move>=0)std::snprintf(replaced,sizeof(replaced)," (replaces the kept press: node=%d)",before.move);
     char later[96]="";if(where.later)std::snprintf(later,sizeof(later)," (too early for its %dms pause: kept, plays in %dms unless a newer press comes)",hop.pause_ms,where.ready_in);
     Logf("NPC_COMBO press source=%s from=%d -> node=%d button=%d waitMs=%d sinceBranchMs=%d pauseMs=%d%s%s%s%s",source,combo_.cursor,hop.move,hop.button,hop.wait_ms,
-         where.since,hop.pause_ms,replaced,later,hold?" (after the move)":"",combo_.tail_input?" (negative tail pre-input)":"");
+         where.since,hop.pause_ms,replaced,later,hold?" (after the move)":"",combo_.tail_input?" (negative end-relative cut)":"");
     if(QueuedReady(now))PlayHop(hop,now);
 }
 // 预输入: before the 派生点 a buffered press lives 预输入 ms from the press (from the move's start when it came while the

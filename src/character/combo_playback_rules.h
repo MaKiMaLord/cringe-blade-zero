@@ -4,9 +4,8 @@
 #include <vector>
 
 namespace ComboPlayback {
-// A negative move value is measured backwards from the end of the montage part shown on the card. It opens an input
-// window only; it does not make the playing move cuttable. Montage coordinates keep this correct under speed curves,
-// hit stop and custom time dilation.
+// A negative move value is measured backwards from the end of the montage part shown on the card. It is an
+// end-relative cut gate. Montage coordinates keep this correct under speed curves, hit stop and custom time dilation.
 inline bool TailPreInputWindow(double position,double begin,double end,int lead_ms){
     if(lead_ms<=0||!(end>begin)||position<begin)return false;
     const double open=end-static_cast<double>(lead_ms)/1000.0;

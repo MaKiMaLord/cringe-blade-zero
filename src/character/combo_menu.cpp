@@ -660,7 +660,7 @@ bool IsSettingAt(int index) { const Node* n=At(index); return n&&NpcCombo::IsSet
 std::wstring PreInputText(int ms) { return ms>0?Seconds(ms/1000.0):Tr(L"不清除"); }
 std::wstring CancelText(int ms) {
     ms=NpcCombo::ClampCancel(ms);
-    return ms<0?Tr(L"末段预输入 ")+Seconds(-ms/1000.0):ms>0?Seconds(ms/1000.0):Tr(L"放完");
+    return ms?Seconds(ms/1000.0):Tr(L"放完");
 }
 // ---- 组合 frames ------------------------------------------------------------------------------------
 // A 组合 is a frame on the canvas: the nodes in it (Node::group) play one after another as one move of the chain. Its

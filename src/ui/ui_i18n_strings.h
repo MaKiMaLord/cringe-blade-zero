@@ -1898,7 +1898,6 @@ inline constexpr UiTranslation kUiTranslations[] = {
     {L"指向它的 %d 招霸体", L"Super armor for the %d move(s) pointing here"},
     {L"加速倍数在 ×0.50 到 ×10.00 之间，已调整。", L"The speed multiplier is ×0.50 to ×10.00; adjusted."},
     {L"派生点在 0 到 10 秒之间，已调整。", L"The cut point is 0 to 10 s; adjusted."},
-    {L"末段预输入 ", L"Tail pre-input "},
     {L"请先播放或预览这一招，读取动画时长后再设置负值", L"Play or preview this move first so its animation length is known before setting a negative value"},
     {L"正值最多 10 秒；负值不能超过这招的动画时长，已调整。", L"Positive values are at most 10 s; a negative value cannot exceed this move's animation length; adjusted."},
     {L"预输入", L"Pre-input"},

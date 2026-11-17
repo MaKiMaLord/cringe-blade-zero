@@ -595,9 +595,9 @@ int wmain(int argc, wchar_t** argv) {
     click(ComboMenu::Probe::Plus(free_node));
     check(now().chain[static_cast<size_t>(free_node)].ms == NpcCombo::kCancelStep, "a move's 派生点 + adds 0.05 s");
     click(ComboMenu::Probe::Minus(free_node)); click(ComboMenu::Probe::Minus(free_node));
-    check(now().chain[static_cast<size_t>(free_node)].ms == -NpcCombo::kCancelStep, "its − crosses zero into a tail pre-input window");
+    check(now().chain[static_cast<size_t>(free_node)].ms == -NpcCombo::kCancelStep, "its − crosses zero into an end-relative cut window");
     click(ComboMenu::Probe::Value(free_node));type(L"-0.5");key_down(VK_RETURN);
-    check(now().chain[static_cast<size_t>(free_node)].ms==-500,"typing -0.5 buffers an input in the final 0.5 s without a cut point");
+    check(now().chain[static_cast<size_t>(free_node)].ms==-500,"typing -0.5 opens the cut point over the final 0.5 s");
     click(ComboMenu::Probe::Value(free_node));type(L"-25");key_down(VK_RETURN);
     check(now().chain[static_cast<size_t>(free_node)].ms==-1200,"a negative value is limited by the displayed 1.2 s animation");
     click(ComboMenu::Probe::Value(free_node));

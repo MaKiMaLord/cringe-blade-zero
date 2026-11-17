@@ -8,7 +8,7 @@ int main() {
     int checks=0,failures=0;
     const auto check=[&](bool ok,const char* label) { ++checks; if (!ok) { ++failures; std::printf("FAIL %s\n",label); } };
     check(!ComboPlayback::TailPreInputWindow(3.49,0,4,500)&&ComboPlayback::TailPreInputWindow(3.5,0,4,500)&&ComboPlayback::TailPreInputWindow(3.99,0,4,500),
-          "a 0.5 s negative value opens only over the final 0.5 s of the montage");
+          "a -0.5 s end-relative cut point opens over the final 0.5 s of the montage");
     check(ComboPlayback::TailPreInputWindow(2.0,2.0,4.0,9999)&&!ComboPlayback::TailPreInputWindow(1.99,2.0,4.0,9999)&&
           !ComboPlayback::TailPreInputWindow(3.9,2.0,4.0,0),"a tail window is clamped to the played part and zero stays off");
     {
