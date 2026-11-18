@@ -143,6 +143,7 @@ bool SameFolder(const std::wstring& a, const std::wstring& b) {
 }
 void Changed() { configs_.clear(); InterlockedIncrement64(&generation_); ++store_.serial; }
 constexpr wchar_t kShowToast[] = L"ShowToast";
+constexpr wchar_t kHeroVoice[] = L"HeroVoice";
 constexpr wchar_t kChainHud[] = L"ChainHud";
 constexpr wchar_t kCameraControlKey[] = L"CameraControl";
 constexpr wchar_t kViewTargetKey[] = L"ViewTarget";
@@ -154,7 +155,7 @@ constexpr wchar_t kChainGrabValue[] = L"ChainGrabValue";
 void Migrate() {
     ComboFile::Set set;
     for (const std::wstring& key : SettingsStore::Keys(kSection)) {
-        if (key.find(L'#') != std::wstring::npos || !_wcsicmp(key.c_str(), L"File") || !_wcsicmp(key.c_str(), L"ShowToast") || !_wcsicmp(key.c_str(), L"ChainHud") || !_wcsicmp(key.c_str(), kCameraControlKey) || !_wcsicmp(key.c_str(), kViewTargetKey) || !_wcsicmp(key.c_str(), kViewScaleKey) ||
+        if (key.find(L'#') != std::wstring::npos || !_wcsicmp(key.c_str(), L"File") || !_wcsicmp(key.c_str(), L"ShowToast") || !_wcsicmp(key.c_str(), kHeroVoice) || !_wcsicmp(key.c_str(), L"ChainHud") || !_wcsicmp(key.c_str(), kCameraControlKey) || !_wcsicmp(key.c_str(), kViewTargetKey) || !_wcsicmp(key.c_str(), kViewScaleKey) ||
             !_wcsicmp(key.c_str(), kChainSkill) || !_wcsicmp(key.c_str(), kChainGrabMode) || !_wcsicmp(key.c_str(), kChainGrabValue)) continue;
         const std::string profile = Narrow(key);
         const std::wstring text = ReadIniText(key);
@@ -394,6 +395,11 @@ void FinishNativeMeasure(const std::string& profile,int node,const std::vector<i
     ReleaseSRWLockExclusive(&lock_);
 }
 bool ShowToast() { return SettingsStore::GetBool(kSection, kShowToast, true); }
+bool HeroVoice() { return SettingsStore::GetBool(kSection, kHeroVoice, false); }
+void SetHeroVoice(bool on) {
+    if (on == HeroVoice()) return;
+    SettingsStore::PutBool(kSection, kHeroVoice, on); Log("NPC_COMBO hero voice=%d", on ? 1 : 0);
+}
 void PublishChain(const ChainState& state) { AcquireSRWLockExclusive(&lock_); chain_ = state; ReleaseSRWLockExclusive(&lock_); }
 ChainState GetChain() { AcquireSRWLockShared(&lock_); ChainState copy = chain_; ReleaseSRWLockShared(&lock_); return copy; }
 int ChainHud() { return std::clamp(SettingsStore::GetInt(kSection, kChainHud, kHudOff), static_cast<int>(kHudOff), static_cast<int>(kHudSimple)); }

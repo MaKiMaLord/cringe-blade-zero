@@ -346,7 +346,7 @@ size_t RandomCount(const NpcSkillSet& set){return set.random_count&&set.random_c
 // the press move on to the round's next skill (at most kSkillTriesPerPress skills per press).
 // exact: a chosen skill (npcretarget cast, the audit); once it gives up waiting no other skill is tried.
 // note: a chain step / dodge replacement names itself in the notice instead of the round count.
-struct PendingCast { Identity asc,ability_class;int32_t handle=0;size_t pick=0,tries=0;ULONGLONG since=0,until=0,next_try=0,load_ms=0;std::string name;std::wstring note;bool pinned=false,exact=false,owned=false,bare=false; };  // owned: the hero's own spec; bare: a boss move granted to the hero without an NPC look (不变身)
+struct PendingCast { Identity asc,ability_class;int32_t handle=0;size_t pick=0,tries=0;ULONGLONG since=0,until=0,next_try=0,load_ms=0;std::string name;std::wstring note;bool pinned=false,exact=false,owned=false,bare=false,boss_voice=false;NpcCombo::Kind voice_kind=NpcCombo::Kind::Other; };  // owned: the hero's own spec; bare: a boss move granted to the hero without an NPC look (不变身)
 PendingCast pending_;
 // BOSS 技能 (NpcCombo::NodeType::BossSkill): the hero takes another look for moves of the chain. owner: the look the
 // chain belongs to (-1: the hero's own); row: the look asked for. Going: waiting for that look, then the node's move
@@ -488,6 +488,7 @@ bool HasResources() {
 }
 std::string Text(Name name) { char text[192]{}; ue::NameText(name, text, sizeof(text)); return text; }
 std::string Text(Object* object) { return object ? Text(ue::NameOf(object)) : "-"; }
+std::string ObjectPath(Object* object);
 std::string Lower(std::string value) {
     for (char& c : value) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return value;
@@ -3900,6 +3901,9 @@ void DropPendingSkill(const char* why) {
 // A 钩子 cast whose aim took no enemy (a spot on the ground or a wall, or a miss): no lock is put on the nearest enemy
 // for it (that lock made the game hook an enemy past the node's reach, 11-09).
 bool hook_no_lock_=false;std::string hook_no_lock_name_;
+void StartBossVoice(Object* pawn,bool requested,NpcCombo::Kind kind);
+void DriveBossVoice();
+void EndBossVoice(const char* why);
 // One activation attempt of pending_, locked on the nearest enemy first. true: it started and is skill_ now.
 bool TryPendingSkill(const Context& context) {
     const bool no_lock=hook_no_lock_&&pending_.name==hook_no_lock_name_;if(no_lock)hook_no_lock_=false;
@@ -3933,6 +3937,7 @@ bool TryPendingSkill(const Context& context) {
     const PendingCast cast=pending_;pending_={};
     charge_pause_.Reset();skill_={};skill_.asc=cast.asc;skill_.ability_class=cast.ability_class;skill_.handle=cast.handle;skill_.started=GetTickCount64();skill_.name=cast.name;skill_.owned=cast.owned;skill_.bare=cast.bare&&!active_;
     RememberSkillLock(context.pawn);
+    StartBossVoice(context.pawn,cast.boss_voice,cast.voice_kind);
     if(boss){skill_route_until_.store(~0ull,std::memory_order_relaxed);NoExecutionOn(context.pawn);}
     if(cast.owned||!active_||selected_<0||static_cast<size_t>(selected_)>=std::size(kNpcSkillSets)){
         // The hero's own move (no NPC look): no boss weapons, no round.
@@ -3998,7 +4003,8 @@ void RetryPendingSkill() {
 // (AnimNotify_PlayAkEvent, no id kept). Read before the ability is cancelled: the sound actions on the timelines of
 // its instances and of its class default, and the Ak notifies of the montage the hero plays. Stopped right after the
 // cancel: each playing id with its action's own fade, and each of those events on the hero (100 ms).
-struct SkillSounds { std::vector<std::pair<int32_t,float>> ids;std::vector<Object*> events;size_t actions=0,notifies=0; };
+struct SkillSoundPlay { int32_t id=0;float fade=0;Object* event=nullptr; };
+struct SkillSounds { std::vector<SkillSoundPlay> plays;std::vector<Object*> events;size_t actions=0,notifies=0; };
 void AddSoundEvent(SkillSounds& out,Object* event) {
     static Object* const event_class=Class("/Script/AkAudio.AkAudioEvent");
     if(!event_class||!ue::Alive(event)||!ue::IsA(event,event_class))return;
@@ -4029,8 +4035,10 @@ void CollectTimelineSounds(Object* ability,SkillSounds& out) {
             if(!ue::Alive(action)||!ue::IsA(action,sound_class))continue;
             ++out.actions;
             const int32_t id=ue::At<int32_t>(action,id_at);const float fade=fade_at>=0?ue::At<float>(action,fade_at):0.f;
-            if(id>0&&out.ids.size()<128&&std::none_of(out.ids.begin(),out.ids.end(),[&](const auto& x){return x.first==id;}))out.ids.push_back({id,std::isfinite(fade)&&fade>0?fade:0.f});
-            AddSoundEvent(out,ObjectField(action,kEventNames,std::size(kEventNames)));
+            Object* event=ObjectField(action,kEventNames,std::size(kEventNames));
+            if(id>0&&out.plays.size()<128&&std::none_of(out.plays.begin(),out.plays.end(),[&](const SkillSoundPlay& x){return x.id==id;}))
+                out.plays.push_back({id,std::isfinite(fade)&&fade>0?fade:0.f,event});
+            AddSoundEvent(out,event);
         }
     }
 }
@@ -4094,15 +4102,88 @@ bool StopPlayingId(Object* pawn,int32_t id,float fade) {
 void StopSkillSounds(const SkillSounds& sounds,Object* pawn,const char* why) {
     if(!ue::Alive(pawn))return;
     int ids=0,events=0;
-    for(const auto& [id,fade]:sounds.ids)if(StopPlayingId(pawn,id,fade))++ids;
+    for(const SkillSoundPlay& play:sounds.plays)if(StopPlayingId(pawn,play.id,play.fade))++ids;
     for(Object* event:sounds.events){
         if(!ue::Alive(event))continue;
         Call stop(ue::Default("/Script/AkAudio.Default__AkGameplayStatics"),"ExecuteActionOnEvent");
         if(stop.Set("AkEvent",event).Set("ActionType",static_cast<uint8_t>(0)).Set("Actor",pawn).Set("TransitionDuration",static_cast<int32_t>(100))
                .Set("FadeCurve",static_cast<uint8_t>(4)).Set("PlayingID",static_cast<int32_t>(0)).Invoke())++events;}
-    Logf("NPC_SKILL sounds stopped reason=%s actions=%zu ids=%d/%zu notifies=%zu events=%d/%zu",why,sounds.actions,ids,sounds.ids.size(),sounds.notifies,events,sounds.events.size());
+    Logf("NPC_SKILL sounds stopped reason=%s actions=%zu ids=%d/%zu notifies=%zu events=%d/%zu",why,sounds.actions,ids,sounds.plays.size(),sounds.notifies,events,sounds.events.size());
+}
+struct HeroVoiceEvent { Identity event;std::string key; };
+struct BossVoiceState {
+    Identity asc,pawn;int32_t handle=0;NpcCombo::Kind kind=NpcCombo::Kind::Other;std::vector<int32_t> seen;
+    std::vector<HeroVoiceEvent> heroes;size_t next=0;size_t boss_events=0,replaced=0,muted=0;
+};
+BossVoiceState boss_voice_;
+bool VoiceMarked(const std::string& key){return key.find("_vo_")!=std::string::npos||key.find("/vo/")!=std::string::npos||key.find("voice")!=std::string::npos||key.find("vocal")!=std::string::npos;}
+bool HeroVoiceMarked(const std::string& key){return key.find("vo_hun")!=std::string::npos||key.find("/hun/")!=std::string::npos||key.find("_hun_")!=std::string::npos||key.find("hunfemale")!=std::string::npos;}
+bool NonAttackVoice(const std::string& key){
+    static constexpr const char* words[]={"hurt","hitreact","death","dead","dialog","talk","story","cutscene","revive","lowhp","idle"};
+    return std::any_of(std::begin(words),std::end(words),[&](const char* word){return key.find(word)!=std::string::npos;});
+}
+std::string VoiceKey(Object* event){return Lower(ObjectPath(event)+"/"+Text(event));}
+bool BossVoiceEvent(Object* event){const std::string key=VoiceKey(event);return VoiceMarked(key)&&!HeroVoiceMarked(key);}
+int HeroVoiceScore(const std::string& key,NpcCombo::Kind kind){
+    if(!VoiceMarked(key)||!HeroVoiceMarked(key)||NonAttackVoice(key))return -1;
+    const auto has=[&](const char* word){return key.find(word)!=std::string::npos;};
+    int score=1;
+    switch(kind){
+    case NpcCombo::Kind::Light: if(has("light")||has("attack")||has("atk"))score+=8;break;
+    case NpcCombo::Kind::Heavy: if(has("heavy"))score+=10;else if(has("attack")||has("atk"))score+=4;break;
+    case NpcCombo::Kind::Dodge: case NpcCombo::Kind::DodgeAttack: if(has("dodge")||has("dash"))score+=10;else if(has("attack"))score+=3;break;
+    case NpcCombo::Kind::Special: if(has("special"))score+=10;else if(has("skill")||has("attack"))score+=4;break;
+    case NpcCombo::Kind::Skill: if(has("skill")||has("combatart"))score+=10;else if(has("attack"))score+=3;break;
+    case NpcCombo::Kind::Ultimate: if(has("ultimate")||has("critical")||has("combatart"))score+=10;else if(has("skill"))score+=4;break;
+    case NpcCombo::Kind::Combo: if(has("combo")||has("attack")||has("atk"))score+=8;break;
+    default: break;
+    }
+    return score;
+}
+void LoadHeroVoices(BossVoiceState& state){
+    Object* event_class=Class("/Script/AkAudio.AkAudioEvent");if(!event_class)return;
+    const ULONGLONG began=GetTickCount64();
+    ue::ForEachObject([&](Object* event){
+        if(!ue::Alive(event)||!ue::IsA(event,event_class))return true;
+        const std::string key=VoiceKey(event);if(HeroVoiceScore(key,state.kind)>=0&&state.heroes.size()<256)state.heroes.push_back({Id(event),key});return true;});
+    std::sort(state.heroes.begin(),state.heroes.end(),[](const HeroVoiceEvent& a,const HeroVoiceEvent& b){return a.key<b.key;});
+    Logf("NPC_VOICE hero combat pool kind=%d events=%zu scanMs=%llu",static_cast<int>(state.kind),state.heroes.size(),GetTickCount64()-began);
+}
+Object* PickHeroVoice(){
+    int best=-1;std::vector<size_t> choices;
+    for(size_t i=0;i<boss_voice_.heroes.size();++i){const HeroVoiceEvent& candidate=boss_voice_.heroes[i];if(!Same(candidate.event))continue;
+        const int score=HeroVoiceScore(candidate.key,boss_voice_.kind);if(score>best){best=score;choices.assign(1,i);}else if(score==best)choices.push_back(i);}
+    if(choices.empty())return nullptr;const size_t picked=choices[boss_voice_.next++%choices.size()];return boss_voice_.heroes[picked].event.object;
+}
+bool PostHeroVoice(Object* pawn,Object* event){
+    if(!ue::Alive(pawn)||!ue::Alive(event))return false;
+    Call post(ue::Default("/Script/AkAudio.Default__AkGameplayStatics"),"PostEvent");
+    return post.Set("AkEvent",event).Set("Actor",pawn).Invoke();
+}
+void EndBossVoice(const char* why){
+    if(boss_voice_.handle>0)Logf("NPC_VOICE end reason=%s bossEvents=%zu replaced=%zu muted=%zu",why,boss_voice_.boss_events,boss_voice_.replaced,boss_voice_.muted);
+    boss_voice_={};
+}
+void DriveBossVoice(){
+    if(boss_voice_.handle<=0)return;
+    if(!NpcCombo::HeroVoice()||skill_.handle!=boss_voice_.handle||!Same(boss_voice_.asc)||!Same(boss_voice_.pawn)){EndBossVoice("skill-or-setting-ended");return;}
+    const SkillSounds sounds=CollectSkillSounds(boss_voice_.asc.object,boss_voice_.handle,boss_voice_.pawn.object);
+    for(const SkillSoundPlay& play:sounds.plays){
+        if(play.id<=0||std::find(boss_voice_.seen.begin(),boss_voice_.seen.end(),play.id)!=boss_voice_.seen.end())continue;
+        boss_voice_.seen.push_back(play.id);if(!BossVoiceEvent(play.event))continue;++boss_voice_.boss_events;
+        if(!StopPlayingId(boss_voice_.pawn.object,play.id,0.02f))continue;
+        Object* hero=PickHeroVoice();if(hero&&PostHeroVoice(boss_voice_.pawn.object,hero)){++boss_voice_.replaced;Logf("NPC_VOICE replaced boss=%s id=%d hero=%s",Text(play.event).c_str(),play.id,Text(hero).c_str());}
+        else{++boss_voice_.muted;Logf("NPC_VOICE muted boss=%s id=%d (no loaded hero combat VO)",Text(play.event).c_str(),play.id);}
+    }
+}
+void StartBossVoice(Object* pawn,bool requested,NpcCombo::Kind kind){
+    EndBossVoice("next-cast");
+    if(!NpcCombo::HeroVoice()||!requested||skill_.owned||skill_.handle<=0||!Same(skill_.asc)||!ue::Alive(pawn))return;
+    boss_voice_.asc=skill_.asc;boss_voice_.pawn=Id(pawn);boss_voice_.handle=skill_.handle;boss_voice_.kind=kind;
+    LoadHeroVoices(boss_voice_);DriveBossVoice();
 }
 void ClearSkill(const char* why) {
+    EndBossVoice(why);
     charge_pause_.Release();
     DropPendingSkill(why);
     if(skill_.handle<=0){RemoveSkillWeapons(why);return;}
@@ -5648,6 +5729,9 @@ bool CastMove(const Context& context,const std::string& package,const std::wstri
     if(!GrantPackage(asc,package,SIZE_MAX,1))return false;
     pending_.exact=true;pending_.note=note;pending_.until=pending_.since+wait_ms;
     pending_.bare=!active_;  // no NPC look: the boss move on the hero's own body (retried, watched and ended as the hero's own)
+    const NpcCombo::Node* voice_node=combo_.playing>=0&&static_cast<size_t>(combo_.playing)<combo_.config.chain.size()?&combo_.config.chain[static_cast<size_t>(combo_.playing)]:nullptr;
+    pending_.boss_voice=voice_node&&voice_node->type==NpcCombo::NodeType::BossSkill;
+    if(pending_.boss_voice)pending_.voice_kind=NpcCombo::Classify(voice_node->ability);
     ArmNativeBossMove(context,package,wait_ms);  // before TryActivateAbility: a frame-zero hit must see the native rule
     TryPendingSkill(context);return true;
 }
@@ -12048,6 +12132,7 @@ void Tick() {
     Timed(kPartSkill, [&] {
         if (active_) { RetryPendingSkill(); HoldSkillLock(); HoldForeignMontage(); DrivePuppet(); } // every frame
         else if (pending_.owned || pending_.bare) RetryPendingSkill();  // the hero's own chain move, or a bare boss move (不变身)
+        DriveBossVoice();  // replace only a BOSS VO action when its own PlayingId appears
         if (!active_ || own_retarget_.skeleton.object) HoldOwnRetarget();  // 不变身: another skeleton's montage on the hero's own body
         if (!active_ && (skill_.owned || skill_.bare)) WatchSkill();  // and its end, also after the chain stopped (no look watches it then)
         if (!active_ && bare_weapons_) { if (skill_.handle > 0 || pending_.handle > 0) HoldBareWeapons(ChainPawn().object); else RemoveSkillWeapons("bare-move-gone"); }

@@ -66,6 +66,10 @@ void FinishNativeMeasure(const std::string& profile, int node, const std::vector
 // [NpcCombo] ShowToast, default on; the NPC skill key's own casts keep theirs). Any thread.
 bool ShowToast();
 void SetShowToast(bool on);
+// BOSS 技能语音替换 (PBZDebugMenu.ini [NpcCombo] HeroVoice): off by default. When on, the runtime replaces only
+// positively identified boss VO events of BOSS 技能 nodes with loaded Hun combat-VO events at the same sound action.
+bool HeroVoice();
+void SetHeroVoice(bool on);
 // 派生显示: where the chain going on is, as the game thread runs it, for the overlay in the game's top-right corner
 // (ComboMenu::HudTick). profile: whose chains run (also with no chain going on); trigger: the node the chain started
 // at (-1: no chain); cursor: the node it is at (the move

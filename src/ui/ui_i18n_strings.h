@@ -7,6 +7,10 @@
 namespace UiI18n {
 struct UiTranslation { const wchar_t* zh; const wchar_t* en; };
 inline constexpr UiTranslation kUiTranslations[] = {
+    {L"BOSS 语音：主角", L"Boss voice: hero"},
+    {L"BOSS 语音：原声", L"Boss voice: original"},
+    {L"BOSS 招式语音：主角（只替换可识别的人声）", L"Boss-move voice: hero (recognized voice events only)"},
+    {L"BOSS 招式语音：原声", L"Boss-move voice: original"},
     {L"前招到派生点（未设则放完）后开始等待，不改变前招速度", L"Wait after the previous cut point (or its end); the previous move keeps its speed."},
     {L"复制", L"Copy"},
     {L"粘贴", L"Paste"},

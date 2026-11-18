@@ -69,7 +69,7 @@ constexpr float kOverviewZoom=.35f;
 constexpr int kHeader=28,kRow=24,kPad=8,kPin=6,kGrid=16,kMajor=128;
 enum class Button : int { Toggle, Interval, AddTrigger, Arrange, Frame, Remove, Clear, Branch, Speed, Weapon, Armor, Interrupt, Grab, BossSkill, File, SaveFile, SaveAs, WeaponMove, Damage,
                           Group, Teleport, Invincible, Look, HeroLook, KeepLook, ForceHit, WeaponActions, Toast, Dummy, AutoDodge, IgnoreGuard, KeepChain, Assist, Hook, Trim, Air, AirSet, BoneTransform,
-                          Copy, Paste, Hud, SkillDamage, GrabDamage, BossEffect, ViewTarget, PluginNode, Plugins, HeroSize, ViewScale, Display, Camera, Damages, Count };  // Plugins: 派生插件 (on / off, the list)  // Hud: 派生显示 (关 / 详细 / 简略), beside 派生提示;
+                          Copy, Paste, Hud, SkillDamage, GrabDamage, BossEffect, ViewTarget, PluginNode, Plugins, HeroSize, ViewScale, Display, Camera, Damages, Voice, Count };  // Plugins: 派生插件 (on / off, the list)  // Hud: 派生显示 (关 / 详细 / 简略), beside 派生提示;
                                                                                 // ViewTarget: 镜头跟随 (骨盆 / 脖子 / 头部), beside 派生显示;
                                                                                 // ViewScale: 镜头取景 (按身高 / 按体型比例), beside 镜头跟随; HeroSize: + 主角体型
                                                                                 // SkillDamage / GrabDamage: 派生页的技能伤害 / 投技伤害
@@ -3170,6 +3170,11 @@ void PressButton(Button button) {
     case Button::Display: if (search_.open&&search_.mode==9) CloseSearch(); else OpenMenuSearch(9); return;
     case Button::Camera: if (search_.open&&search_.mode==8) CloseSearch(); else OpenMenuSearch(8); return;
     case Button::Damages: if (search_.open&&search_.mode==10) CloseSearch(); else OpenMenuSearch(10); return;
+    case Button::Voice: {
+        const bool on=!NpcCombo::HeroVoice();NpcCombo::SetHeroVoice(on);
+        DebugHub::Notify(Tr(on?L"BOSS 招式语音：主角（只替换可识别的人声）":L"BOSS 招式语音：原声").c_str());
+        Layout();Invalidate();return;
+    }
     case Button::SkillDamage: if (search_.open&&search_.mode==4) CloseSearch(); else OpenDamageSearch(4); return;
     case Button::Plugins: if (search_.open&&search_.mode==7) CloseSearch(); else OpenPluginSearch(); return;
     case Button::PluginNode: {
@@ -3406,6 +3411,7 @@ std::wstring ButtonText(Button button) {
     case Button::Display: return Tr(L"显示 ▾");
     case Button::Camera: return Tr(L"镜头 ▾");
     case Button::Damages: return Tr(L"伤害 ▾");
+    case Button::Voice: return Tr(NpcCombo::HeroVoice()?L"BOSS 语音：主角":L"BOSS 语音：原声");
     case Button::Plugins: return Tr(ComboPlugins::Enabled()?L"派生插件：开 ▾":L"派生插件：关 ▾");
     case Button::PluginNode: return Tr(L"+ 插件节点");
     case Button::Interval: return Tr(L"+ 间隔");
@@ -3478,7 +3484,7 @@ void Layout() {
     int bar_right=right-toggle_w;
     const auto place=[&](Button b,int space){ const int bw=button_w(b); bar_right-=space; buttons_[static_cast<int>(b)]={bar_right-bw,y,bar_right,y+row}; bar_right-=bw; };
     bar_rules_[0]=bar_right-group_gap/2;
-    place(Button::Display,group_gap); place(Button::Camera,gap); place(Button::Damages,gap);
+    place(Button::Display,group_gap); place(Button::Camera,gap); place(Button::Damages,gap); place(Button::Voice,gap);
     bar_rules_[1]=bar_right-group_gap/2;
     place(Button::Plugins,group_gap); place(Button::Dummy,gap);
     header_={pad,y,(std::max)(pad+m.S(80),bar_right-group_gap),y+row};
@@ -3656,7 +3662,7 @@ Hit HitTest(POINT p) {
     const auto in=[&](const RECT& r){return PtInRect(&r,p)!=FALSE;};
     if (search_.open&&in(search_.rect)) return {Part::Search,SearchRowAt(p)};
     if (HasSkin()&&in(buttons_[static_cast<int>(Button::Toggle)])) return {Part::Button,static_cast<int>(Button::Toggle)};
-    for (const Button b:{Button::Display,Button::Camera,Button::Damages,Button::Plugins,Button::Dummy})
+    for (const Button b:{Button::Display,Button::Camera,Button::Damages,Button::Voice,Button::Plugins,Button::Dummy})
         if (in(buttons_[static_cast<int>(b)])) return {Part::Button,static_cast<int>(b)};
     if (in(header_)) return {Part::Header,-1};
     for (int i=0;i<2;++i) if (in(library_tabs_[i])) return {Part::LibraryTab,i};
@@ -4777,6 +4783,7 @@ void Paint(HDC printed=nullptr) {
         DrawButton(dc,graphics,Button::Display,NpcCombo::ChainHud()!=NpcCombo::kHudOff||(search_.open&&search_.mode==9),true);
         DrawButton(dc,graphics,Button::Camera,NpcCombo::CameraControl()||(search_.open&&search_.mode==8),true);
         DrawButton(dc,graphics,Button::Damages,NpcCombo::ChainSkillDamage()>0||NpcCombo::ChainGrabDamage().mode!=NpcCombo::kGrabFollow||(search_.open&&search_.mode==10),true);
+        DrawButton(dc,graphics,Button::Voice,NpcCombo::HeroVoice(),true);
         DrawButton(dc,graphics,Button::Dummy,dummy_present_,true);
         {
             const RECT bar=buttons_[static_cast<int>(Button::Toggle)];
