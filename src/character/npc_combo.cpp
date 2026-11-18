@@ -144,6 +144,7 @@ bool SameFolder(const std::wstring& a, const std::wstring& b) {
 void Changed() { configs_.clear(); InterlockedIncrement64(&generation_); ++store_.serial; }
 constexpr wchar_t kShowToast[] = L"ShowToast";
 constexpr wchar_t kChainHud[] = L"ChainHud";
+constexpr wchar_t kCameraControlKey[] = L"CameraControl";
 constexpr wchar_t kViewTargetKey[] = L"ViewTarget";
 constexpr wchar_t kViewScaleKey[] = L"ViewScale";
 constexpr wchar_t kChainSkill[] = L"ChainSkillDamage";
@@ -153,7 +154,7 @@ constexpr wchar_t kChainGrabValue[] = L"ChainGrabValue";
 void Migrate() {
     ComboFile::Set set;
     for (const std::wstring& key : SettingsStore::Keys(kSection)) {
-        if (key.find(L'#') != std::wstring::npos || !_wcsicmp(key.c_str(), L"File") || !_wcsicmp(key.c_str(), L"ShowToast") || !_wcsicmp(key.c_str(), L"ChainHud") || !_wcsicmp(key.c_str(), kViewTargetKey) || !_wcsicmp(key.c_str(), kViewScaleKey) ||
+        if (key.find(L'#') != std::wstring::npos || !_wcsicmp(key.c_str(), L"File") || !_wcsicmp(key.c_str(), L"ShowToast") || !_wcsicmp(key.c_str(), L"ChainHud") || !_wcsicmp(key.c_str(), kCameraControlKey) || !_wcsicmp(key.c_str(), kViewTargetKey) || !_wcsicmp(key.c_str(), kViewScaleKey) ||
             !_wcsicmp(key.c_str(), kChainSkill) || !_wcsicmp(key.c_str(), kChainGrabMode) || !_wcsicmp(key.c_str(), kChainGrabValue)) continue;
         const std::string profile = Narrow(key);
         const std::wstring text = ReadIniText(key);
@@ -400,6 +401,11 @@ void SetChainHud(int mode) {
     mode = std::clamp(mode, static_cast<int>(kHudOff), static_cast<int>(kHudSimple));
     if (mode == ChainHud()) return;
     SettingsStore::PutInt(kSection, kChainHud, mode); Log("NPC_COMBO chain hud=%d", mode);
+}
+bool CameraControl() { return SettingsStore::GetBool(kSection, kCameraControlKey, false); }
+void SetCameraControl(bool on) {
+    if (on == CameraControl()) return;
+    SettingsStore::PutBool(kSection, kCameraControlKey, on); Log("NPC_COMBO camera control=%d", on ? 1 : 0);
 }
 std::atomic<int> view_target_{-1};  // -1: not read yet
 int ViewTarget() {
