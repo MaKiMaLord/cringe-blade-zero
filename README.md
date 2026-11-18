@@ -212,7 +212,7 @@ cmake --build build --config Release --target version
 | `[Grab]` · `[GrabExtras]` · `[GrabDamage]` | 投技招式与开关、换武器 / 伤害模式 / 无视无敌、各招实测伤害 |
 | `[NpcSkill]` | NPC 技能伤害倍率 `DamageMultiplier`（1–10，默认 3） |
 | `[NpcRetarget]` | `BossLocomotion`：BOSS 自带移动动画（`1` 开，默认 `0`）。套用外观后只移动时播放该 BOSS 自己的待机 / 走 / 跑 |
-| `[NpcCombo]` | `File`：当前使用的派生文件（`combos\<File>.combo`，默认 `default`）。派生链本身存在 DLL 同目录的 `combos\` 文件夹；以前存在这一节的派生链在第一次运行时搬进 `combos\default.combo`。`ViewTarget`：镜头跟随（`0` 骨盆，默认；`1` 脖子；`2` 头部）。`ViewScale`：镜头取景（`0` 按身高，默认；`1` 按体型比例） |
+| `[NpcCombo]` | `File`：当前使用的派生文件（`combos\<File>.combo`，默认 `default`）。派生链本身存在 DLL 同目录的 `combos\` 文件夹；以前存在这一节的派生链在第一次运行时搬进 `combos\default.combo`。`CameraControl`：MOD 镜头接管（默认 `0`，使用游戏原生镜头；`1` 开启）。开启后 `ViewTarget` 选择跟随部位（`0` 骨盆，`1` 脖子，`2` 头部），`ViewScale` 选择取景（`0` 按身高，`1` 按体型比例） |
 | `[NpcBody]` | 身材 / 骨骼：`Enabled`（`1` 开，默认 `0`；打开编辑器时写入 `1`）、`Hook`（`0`：只交骨架不写滑条，排查用，默认 `1`）。滑条、预设和动画在 `UUEPBS Presets\` |
 | `[AirSkills]` | 空中施放、近敌 JC、缓落与奖励 |
 | `[WeaponPresets]` | 两套武器预设与当前套 |

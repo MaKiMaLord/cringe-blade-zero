@@ -2497,6 +2497,7 @@ bool SetCameraLift(Object* camera,double lift) {
 }
 void ApplyCameraLift(Object* pawn) {
     camera_owned_=false;camera_={};camera_probe_at_=0;
+    if(!NpcCombo::CameraControl()){Logf("NPC_CAMERA native mode: height adaptation skipped");return;}
     if(std::abs(camera_lift_)<kCameraLiftMin){Logf("NPC_CAMERA headDeltaCm=%.1f under %.0f; camera unchanged",camera_lift_,kCameraLiftMin);return;}
     const double lift=(std::max)(kCameraLiftLow,(std::min)(camera_lift_,kCameraLiftHigh));
     Object* atpc=Class("/Script/AdvancedThirdPersonCamera.ATPCCameraComponent"),*camera=nullptr;
@@ -2508,7 +2509,9 @@ void ApplyCameraLift(Object* pawn) {
     Logf("NPC_CAMERA raised camera=%s class=%s headDeltaCm=%.1f appliedCm=%.1f additive=%ls",Text(camera).c_str(),Text(ue::ClassOf(camera)).c_str(),camera_lift_,lift,kCameraAdditive);
 }
 // Same named additive, same value: a no-op while it holds, and back in place if a camera mode reset it.
+void ResetCameraLift();
 void HoldCameraLift() {
+    if(!NpcCombo::CameraControl()){ResetCameraLift();return;}
     if(!camera_owned_||!Same(camera_)||GetTickCount64()<camera_hold_at_)return;camera_hold_at_=GetTickCount64()+kCameraHoldMs;
     if(SetCameraLift(camera_.object,camera_applied_))++camera_holds_;
 }
@@ -9773,6 +9776,7 @@ void ResetHeroSize(const char* why){
 // look to: the shown head over the hero's, none at the hero's size (彭猛 kept 252 cm over a hero-sized model). The
 // camera blends there (SetCameraLift, 0.4 s); HoldCameraLift keeps it; the look's return resets it as before.
 void FitCameraLift(double shown){
+    if(!NpcCombo::CameraControl()){ResetCameraLift();return;}
     if(!camera_owned_||!Same(camera_))return;
     const double lift=std::clamp(NpcHeroSize::LiftAt(camera_lift_,look_ratio_,shown),kCameraLiftLow,kCameraLiftHigh);
     if(!std::isfinite(lift)||std::abs(lift-camera_applied_)<1||!SetCameraLift(camera_.object,lift))return;
@@ -9821,11 +9825,13 @@ void DriveViewFollow(){
     const int64_t handle=skill_.handle>0?static_cast<int64_t>(skill_.handle):0;
     Context context;const bool have=ContextNow(context)&&ue::Alive(context.pawn);
     const uint64_t look_montage=!chain_move&&handle<=0&&have?LookMontage(context.mesh):0;
-    const bool want=view_enabled_&&have&&(chain_move||handle>0||look_montage);
+    const bool enabled=view_enabled_&&NpcCombo::CameraControl();
+    const bool want=enabled&&have&&(chain_move||handle>0||look_montage);
     const ULONGLONG now=GetTickCount64();
     if(want)view_cam_.wanted_at=now;
-    else EndViewFollow(view_enabled_?"the move is over":"switched off");
-    if(!have||(!view_enabled_&&!view_cam_.on)){ReleaseViewCam(have?"switched off":"no pawn");return;}
+    else EndViewFollow(enabled?"the move is over":"switched off");
+    if(!have){ReleaseViewCam("no pawn");return;}
+    if(!enabled){ReleaseViewCam("switched off; using the game's camera");return;}
     if(view_cam_.on&&(!Same(view_cam_.pawn)||view_cam_.pawn.object!=context.pawn))ReleaseViewCam("another pawn");
     // 镜头跟随 changed: the relation was to the other bone; ours lets go, the game camera's relation is measured again.
     static int target_seen=-1;
@@ -9964,7 +9970,7 @@ void DriveViewFollow(){
     }
 }
 void BeforeViewTrimSeek(double position,double destination){
-    if(!view_enabled_)return;
+    if(!view_enabled_||!NpcCombo::CameraControl())return;
     if(!ViewFollowState::IsPoseJump(position,destination))return;
     // The target takes the jumped pose at once for kViewSnapMs (not eased behind it).
     DriveViewFollow();if(!view_.on)return;

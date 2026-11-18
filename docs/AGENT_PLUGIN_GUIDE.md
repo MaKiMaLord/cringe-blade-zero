@@ -299,7 +299,7 @@ end)
 | 模块 | 常用成员 |
 | --- | --- |
 | `host` | `api_revision` `mod_version` `plugins_enabled` `plugins_loaded`（只读）；事件 `command_done` `action_done` |
-| `combo` | `skill_damage` `grab_damage_mode` `grab_damage_value` `chain_hud`（off/detailed/simple）`view_target`（pelvis/neck/head）`view_scale`（height/ratio）`show_toast` |
+| `combo` | `skill_damage` `grab_damage_mode` `grab_damage_value` `chain_hud`（off/detailed/simple）`camera_control` `view_target`（pelvis/neck/head）`view_scale`（height/ratio）`show_toast` |
 | `npc_look` | `skill_damage` `boss_locomotion` `experimental`；动作 `apply` `restore` `inspect` `skill` `list`；事件 `look_changed` |
 | `character` | 动作 `replace` `restore` `list`；事件 `swap_changed` |
 | `npc_body` | `enabled` `edits_on`；动作 `bone` `clear_bone(s)` `bones` `morph` `clear_morph(s)` `morphs` `preset` `presets` `editor` |

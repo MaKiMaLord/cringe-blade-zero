@@ -530,9 +530,11 @@ int main() {
 
     // ---- options and settings ----
     double v = -1;
-    Check(api->set_option(me, "chain_hud", 2) == PBZ_OK && NpcCombo::ChainHud() == 2 && api->get_option("chain_hud", &v) == PBZ_OK && v == 2 &&
+    Check(!NpcCombo::CameraControl() && api->set_option(me, "camera_control", 1) == PBZ_OK && NpcCombo::CameraControl() &&
+          api->get_option("camera_control", &v) == PBZ_OK && v == 1 &&
+          api->set_option(me, "chain_hud", 2) == PBZ_OK && NpcCombo::ChainHud() == 2 && api->get_option("chain_hud", &v) == PBZ_OK && v == 2 &&
           api->set_option(me, "chain_hud", 9) == PBZ_E_ARG && api->set_option(me, "plugins", 0) == PBZ_E_ARG && api->get_option("nosuch", &v) == PBZ_E_NOT_FOUND, "options");
-    api->set_option(me, "chain_hud", 0);
+    api->set_option(me, "chain_hud", 0); api->set_option(me, "camera_control", 0);
     char value[64]{}; int32_t needed = 0;
     Check(api->set_setting(me, "Plugin.test", "TestKey", "42") == PBZ_OK && api->get_setting("Plugin.test", "TestKey", value, sizeof(value), &needed) == PBZ_OK && std::string(value) == "42" &&
           api->set_setting(me, "NpcCombo", "TestKey", "1") == PBZ_OK && api->set_setting(me, "Plugins", "Enabled", "0") == PBZ_E_ARG && api->set_setting(me, "Plugins", "AllowUe", "1") == PBZ_E_ARG &&

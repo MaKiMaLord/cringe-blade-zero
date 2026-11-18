@@ -144,7 +144,7 @@ enum class ItemKind { Move, Interval, AutoDodge, Trigger, Branch, Speed, Weapon,
                       PluginNode, PluginAction, PluginToggle, PluginFolder, PluginInfo, HeroSize,
                       PluginGrant,  // 插件权限: ability = the plugin's id, trigger = the PBZ_CAP_* bit a click switches
                       PluginUi,     // a control on a plugin's own page: ability = "plugin id TAB page TAB item", trigger = PBZ_UI_*, value = +1 / -1 (a slider's two steps)
-                      HudMode, ToastMode, ViewBone, ViewFrame,  // the top bar's 显示 / 镜头 lists: trigger = the value a click sets
+                      HudMode, ToastMode, ViewControl, ViewBone, ViewFrame,  // the top bar's 显示 / 镜头 lists: trigger = the value a click sets
                       PluginReload };  // 派生插件 list: read PBZPlugins\scripts\*.lua again (ComboPlugins::RequestScriptReload)
 // value: a ChainSkill's multiplier (0: follow the NPC 技能 page), a ChainGrab's (trigger: its mode, kGrabFollow: follow the 投技 page).
 // choice: a row of the top bar's 显示 / 镜头 / 伤害 lists, drawn as a radio button; on: the value in use now.
@@ -2225,11 +2225,13 @@ void SearchItems() {
         const auto choice=[&](ItemKind kind,const wchar_t* label,const std::wstring& group,int value,bool on){
             Item item{kind,Tr(label),group}; item.trigger=value; item.choice=true; item.on=on; add(item); };
         if (search_.mode==8) {
-            const int bone=NpcCombo::ViewTarget(); const bool ratio=NpcCombo::ViewScale()==NpcCombo::kScaleHeroRatio;
-            const std::wstring follow=Tr(L"镜头跟随：招式中镜头盯着的骨骼"),framing=Tr(L"镜头取景：招式中镜头离模型多远");
-            choice(ItemKind::ViewBone,L"骨盆",follow,NpcCombo::kViewPelvis,bone!=NpcCombo::kViewNeck&&bone!=NpcCombo::kViewHead);
-            choice(ItemKind::ViewBone,L"脖子",follow,NpcCombo::kViewNeck,bone==NpcCombo::kViewNeck);
-            choice(ItemKind::ViewBone,L"头部",follow,NpcCombo::kViewHead,bone==NpcCombo::kViewHead);
+            const bool control=NpcCombo::CameraControl(); const int bone=NpcCombo::ViewTarget(); const bool ratio=NpcCombo::ViewScale()==NpcCombo::kScaleHeroRatio;
+            const std::wstring owner=Tr(L"镜头控制"),follow=Tr(L"镜头跟随：招式中镜头盯着的骨骼"),framing=Tr(L"镜头取景：招式中镜头离模型多远");
+            choice(ItemKind::ViewControl,L"关闭（游戏原生）",owner,0,!control);
+            choice(ItemKind::ViewControl,L"开启（MOD 跟随）",owner,1,control);
+            choice(ItemKind::ViewBone,L"骨盆",follow,NpcCombo::kViewPelvis,control&&bone!=NpcCombo::kViewNeck&&bone!=NpcCombo::kViewHead);
+            choice(ItemKind::ViewBone,L"脖子",follow,NpcCombo::kViewNeck,control&&bone==NpcCombo::kViewNeck);
+            choice(ItemKind::ViewBone,L"头部",follow,NpcCombo::kViewHead,control&&bone==NpcCombo::kViewHead);
             choice(ItemKind::ViewFrame,L"按身高（只有高于 2 米的模型拉远镜头）",framing,NpcCombo::kScaleHeight,!ratio);
             choice(ItemKind::ViewFrame,L"按体型比例（按 BOSS 显示的大小和主角身高之比）",framing,NpcCombo::kScaleHeroRatio,ratio);
         } else {
@@ -2698,6 +2700,9 @@ void NotifyViewTarget(int target) {
     DebugHub::Notify(Tr(target==NpcCombo::kViewNeck?L"镜头跟随：脖子（招式中镜头盯着模型的脖子）":
                         target==NpcCombo::kViewHead?L"镜头跟随：头部（招式中镜头盯着模型的头部）":L"镜头跟随：骨盆（招式中镜头盯着模型的骨盆）").c_str());
 }
+void NotifyViewControl(bool on) {
+    DebugHub::Notify(Tr(on?L"MOD 镜头接管已开启：招式中按下面的跟随和取景设置控制镜头":L"MOD 镜头接管已关闭：使用游戏原生镜头").c_str());
+}
 void NotifyViewScale(int mode) {
     DebugHub::Notify(Tr(mode==NpcCombo::kScaleHeroRatio?L"镜头取景：按体型比例（招式中镜头按 BOSS 当前显示的大小和主角身高之比拉远或拉近；缩放到主角体型时和主角一样）":
                         L"镜头取景：按身高（招式中只有高于 2 米的模型按身高拉远镜头）").c_str());
@@ -2843,11 +2848,12 @@ void SearchPick(int row) {
     const int part=search_.pick_part,menu_mode=search_.mode,menu_scroll=search_.scroll;
     const int menu_row=search_.query.empty()?row:-1;  // a typed filter: the reopened list is whole, so its rows differ
     CloseSearch();
-    if (item.kind==ItemKind::HudMode||item.kind==ItemKind::ToastMode||item.kind==ItemKind::ViewBone||item.kind==ItemKind::ViewFrame) {
+    if (item.kind==ItemKind::HudMode||item.kind==ItemKind::ToastMode||item.kind==ItemKind::ViewControl||item.kind==ItemKind::ViewBone||item.kind==ItemKind::ViewFrame) {
         switch (item.kind) {
         case ItemKind::HudMode: NpcCombo::SetChainHud(item.trigger); NotifyChainHud(NpcCombo::ChainHud()); break;
         case ItemKind::ToastMode: NpcCombo::SetShowToast(item.trigger!=0); NotifyToast(NpcCombo::ShowToast()); break;
-        case ItemKind::ViewBone: NpcCombo::SetViewTarget(item.trigger); NotifyViewTarget(NpcCombo::ViewTarget()); break;
+        case ItemKind::ViewControl: NpcCombo::SetCameraControl(item.trigger!=0); NotifyViewControl(NpcCombo::CameraControl()); break;
+        case ItemKind::ViewBone: NpcCombo::SetViewTarget(item.trigger); NpcCombo::SetCameraControl(true); NotifyViewTarget(NpcCombo::ViewTarget()); break;
         default: NpcCombo::SetViewScale(item.trigger); NotifyViewScale(NpcCombo::ViewScale()); break;
         }
         Layout(); OpenMenuSearch(menu_mode,menu_row,menu_scroll); return;
@@ -3152,7 +3158,11 @@ void PressButton(Button button) {
     // The old one-value buttons (no longer on the bar; their values are rows of the 显示 / 镜头 / 伤害 lists).
     case Button::Toast: { const bool on=!NpcCombo::ShowToast(); NpcCombo::SetShowToast(on); NotifyToast(on); Layout(); Invalidate(); return; }
     case Button::Hud: { const int mode=(NpcCombo::ChainHud()+1)%3; NpcCombo::SetChainHud(mode); NotifyChainHud(mode); Layout(); Invalidate(); return; }
-    case Button::ViewTarget: { const int target=(NpcCombo::ViewTarget()+1)%3; NpcCombo::SetViewTarget(target); NotifyViewTarget(target); Layout(); Invalidate(); return; }
+    case Button::ViewTarget: {
+        if(!NpcCombo::CameraControl()){NpcCombo::SetViewTarget(NpcCombo::kViewPelvis);NpcCombo::SetCameraControl(true);NotifyViewTarget(NpcCombo::kViewPelvis);}
+        else if(NpcCombo::ViewTarget()==NpcCombo::kViewHead){NpcCombo::SetCameraControl(false);NotifyViewControl(false);}
+        else{const int target=NpcCombo::ViewTarget()+1;NpcCombo::SetViewTarget(target);NotifyViewTarget(target);}
+        Layout();Invalidate();return; }
     case Button::ViewScale: {
         const int mode=NpcCombo::ViewScale()==NpcCombo::kScaleHeroRatio?NpcCombo::kScaleHeight:NpcCombo::kScaleHeroRatio;
         NpcCombo::SetViewScale(mode); NotifyViewScale(mode); Layout(); Invalidate(); return;
@@ -3390,7 +3400,7 @@ std::wstring ButtonText(Button button) {
     case Button::SkillDamage: { const float v=NpcCombo::ChainSkillDamage(); return Tr(L"技能伤害：")+(v>0?ChainSkillText(v):Tr(L"跟随"))+L" ▾"; }
     case Button::GrabDamage: { const NpcCombo::ChainGrab g=NpcCombo::ChainGrabDamage(); return Tr(L"投技伤害：")+(g.mode!=NpcCombo::kGrabFollow?ChainGrabText(g):Tr(L"跟随"))+L" ▾"; }
     case Button::Hud: { const int mode=NpcCombo::ChainHud(); return Tr(mode==NpcCombo::kHudDetailed?L"派生显示：详细":mode==NpcCombo::kHudSimple?L"派生显示：简略":L"派生显示：关"); }
-    case Button::ViewTarget: { const int t=NpcCombo::ViewTarget(); return Tr(t==NpcCombo::kViewNeck?L"镜头跟随：脖子":t==NpcCombo::kViewHead?L"镜头跟随：头部":L"镜头跟随：骨盆"); }
+    case Button::ViewTarget: { if(!NpcCombo::CameraControl())return Tr(L"镜头：游戏原生");const int t=NpcCombo::ViewTarget(); return Tr(t==NpcCombo::kViewNeck?L"镜头跟随：脖子":t==NpcCombo::kViewHead?L"镜头跟随：头部":L"镜头跟随：骨盆"); }
     case Button::ViewScale: return Tr(NpcCombo::ViewScale()==NpcCombo::kScaleHeroRatio?L"镜头取景：按体型比例":L"镜头取景：按身高");
     case Button::Dummy: return Tr(dummy_present_?L"移除木桩":L"召唤木桩");
     case Button::Display: return Tr(L"显示 ▾");
@@ -4765,7 +4775,7 @@ void Paint(HDC printed=nullptr) {
         DrawButton(dc,graphics,Button::Toggle,config_.enabled,HasSkin());
         // 显示 lit while the corner chain shows, 镜头 / 伤害 while they differ from the defaults, each while its list is open.
         DrawButton(dc,graphics,Button::Display,NpcCombo::ChainHud()!=NpcCombo::kHudOff||(search_.open&&search_.mode==9),true);
-        DrawButton(dc,graphics,Button::Camera,NpcCombo::ViewTarget()!=NpcCombo::kViewPelvis||NpcCombo::ViewScale()==NpcCombo::kScaleHeroRatio||(search_.open&&search_.mode==8),true);
+        DrawButton(dc,graphics,Button::Camera,NpcCombo::CameraControl()||(search_.open&&search_.mode==8),true);
         DrawButton(dc,graphics,Button::Damages,NpcCombo::ChainSkillDamage()>0||NpcCombo::ChainGrabDamage().mode!=NpcCombo::kGrabFollow||(search_.open&&search_.mode==10),true);
         DrawButton(dc,graphics,Button::Dummy,dummy_present_,true);
         {

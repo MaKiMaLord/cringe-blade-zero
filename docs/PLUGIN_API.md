@@ -461,6 +461,7 @@ if (api->edit_begin(self, "Hero", &ed) == PBZ_OK) {          /* 把主角的派�
 | `grab_damage_mode` | 派生页「投技伤害」：-1 跟随投技页，0 原生，1 倍率，2 每段至少最大生命的百分比 |
 | `grab_damage_value` | 投技伤害的数值（倍率或百分比） |
 | `chain_hud` | 派生显示：0 关，1 详细，2 简略 |
+| `camera_control` | MOD 镜头接管：0 使用游戏原生镜头，1 开启跟随与取景 |
 | `view_target` | 视角跟随盯的骨骼：0 骨盆，1 脖子，2 头部 |
 | `show_toast` | 派生提示：0 / 1 |
 | `plugins` | 派生插件开关（只读） |
@@ -585,6 +586,7 @@ api->action_invoke(self, "npc_look", "restore", "", 0, text, sizeof(text), &need
 | `grab_damage_mode` | int -1~2 | -1 跟随投技页，0 原生，1 倍率，2 每段至少最大生命的百分比 |
 | `grab_damage_value` | float 0~1000 | 倍率或百分比 |
 | `chain_hud` | enum off / detailed / simple | 派生显示 |
+| `camera_control` | bool | MOD 镜头接管；默认关，关闭时使用游戏原生镜头 |
 | `view_target` | enum pelvis / neck / head | 视角跟随盯的骨骼 |
 | `view_scale` | enum height / ratio | 镜头取景：按身高 / 按体型比例 |
 | `show_toast` | bool | 派生提示 |
