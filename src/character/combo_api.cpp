@@ -25,6 +25,8 @@ void RegisterCombo() {
                "NpcCombo.ChainGrabValue", "倍率或百分比，看投技伤害方式")
         .Enum("chain_hud", "派生显示", {"off", "detailed", "simple"}, NpcCombo::kHudOff,
               [] { return NpcCombo::ChainHud(); }, [](int v) { NpcCombo::SetChainHud(v); }, "NpcCombo.ChainHud", "游戏右上角的派生链叠加：关 / 详细 / 简略")
+        .Bool("camera_control", "MOD 镜头接管", [] { return NpcCombo::CameraControl(); }, [](bool v) { NpcCombo::SetCameraControl(v); },
+              "NpcCombo.CameraControl", "关闭时完全使用游戏原生镜头；开启后按 view_target / view_scale 跟随招式")
         .Enum("view_target", "视角跟随盯的骨骼", {"pelvis", "neck", "head"}, NpcCombo::kViewPelvis,
               [] { return NpcCombo::ViewTarget(); }, [](int v) { NpcCombo::SetViewTarget(v); }, "NpcCombo.ViewTarget")
         .Enum("view_scale", "镜头取景", {"height", "ratio"}, 0,
