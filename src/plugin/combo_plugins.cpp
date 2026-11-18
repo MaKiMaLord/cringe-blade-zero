@@ -842,6 +842,7 @@ PbzResult PBZ_CALL GetOption(const char* name, double* value) {
     else if (n == "grab_damage_mode") *value = NpcCombo::ChainGrabDamage().mode;
     else if (n == "grab_damage_value") *value = NpcCombo::ChainGrabDamage().value;
     else if (n == "chain_hud") *value = NpcCombo::ChainHud();
+    else if (n == "camera_control") *value = NpcCombo::CameraControl() ? 1 : 0;
     else if (n == "view_target") *value = NpcCombo::ViewTarget();
     else if (n == "show_toast") *value = NpcCombo::ShowToast() ? 1 : 0;
     else if (n == "plugins") *value = Enabled() ? 1 : 0;
@@ -861,6 +862,7 @@ PbzResult PBZ_CALL SetOption(PbzPlugin* self, const char* name, double value) {
         NpcCombo::SetChainGrabDamage(grab);
     }
     else if (n == "chain_hud") { if (whole < NpcCombo::kHudOff || whole > NpcCombo::kHudSimple) return PBZ_E_ARG; NpcCombo::SetChainHud(whole); }
+    else if (n == "camera_control") NpcCombo::SetCameraControl(whole != 0);
     else if (n == "view_target") { if (whole < NpcCombo::kViewPelvis || whole > NpcCombo::kViewHead) return PBZ_E_ARG; NpcCombo::SetViewTarget(whole); }
     else if (n == "show_toast") NpcCombo::SetShowToast(whole != 0);
     else if (n == "plugins") return PBZ_E_ARG;  // the player's switch
