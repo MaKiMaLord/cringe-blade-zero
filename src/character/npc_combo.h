@@ -84,8 +84,11 @@ ChainState GetChain();
 enum : int { kHudOff = 0, kHudDetailed = 1, kHudSimple = 2 };
 int ChainHud();
 void SetChainHud(int mode);
-// 镜头跟随 (PBZDebugMenu.ini [NpcCombo] ViewTarget): the bone the 视角跟随 camera looks at, kViewPelvis (default),
-// kViewNeck or kViewHead. Any thread; cached (the game thread reads it every frame).
+// MOD 镜头接管 (PBZDebugMenu.ini [NpcCombo] CameraControl): off by default leaves the game's camera alone. When on,
+// ViewTarget selects the bone its 视角跟随 camera looks at. Any thread; cached (the game thread reads it every frame).
+bool CameraControl();
+void SetCameraControl(bool on);
+// 镜头跟随 (PBZDebugMenu.ini [NpcCombo] ViewTarget): kViewPelvis (default), kViewNeck or kViewHead.
 enum : int { kViewPelvis = 0, kViewNeck = 1, kViewHead = 2 };
 int ViewTarget();
 void SetViewTarget(int target);
